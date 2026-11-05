@@ -1,0 +1,14 @@
+{
+  "name": "relative-value-geo",
+  "private": true,
+  "type": "module",
+  "description": "Build docs/data/map/counties.json from us-atlas (pre-projected geoAlbersUsa) + county->locality mapping",
+  "scripts": {
+    "build": "node build_map.mjs"
+  },
+  "dependencies": {
+    "topojson-client": "3.1.0",
+    "topojson-simplify": "3.0.3",
+    "us-atlas": "3.0.1"
+  }
+}

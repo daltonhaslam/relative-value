@@ -1,0 +1,46 @@
+<div class="two even">
+<div>
+<h3>How a payment is priced</h3>
+<p>Every rate on this page is computed the way CMS computes it: (work RVU &times; work GPCI + practice-expense RVU &times; PE GPCI + malpractice RVU &times; MP GPCI) &times; conversion factor. Office lines use non-facility practice expense; facility lines use facility practice expense; a code with no non-facility value is paid at its facility value. At national GPCIs (1.0) the results match CMS's own &ldquo;Impact on CY 2027 Payment for Selected Procedures&rdquo; table to the cent for every code and setting in it. The page's tests check this on every build.</p>
+<ul>
+<li><strong>2026:</strong> CMS's October 2026 relative value file (RVU26D) and its 2026 GPCIs, which include the 1.0 work floor. Conversion factor $33.4009 ($33.5675 for qualifying APM participants).</li>
+<li><strong>2027:</strong> Addendum B (relative values) and Addendum E (GPCIs) of the CY2027 PFS final rule, CMS-1848-F. Conversion factor $32.6286 ($32.9548).</li>
+<li><strong>Codes deleted for 2027</strong> are priced through CMS's analytic crosswalk to their replacement codes.</li>
+<li><strong>G2211</strong> ends in 2027. Office and home visits carry modifier B1 (16% of the visit's work RVUs) or, for Shared Savings Program ACO and LEAD participants, B2 (32%). The statement keeps the visits a clinician billed G2211 on and prices B1 (or B2, with the ACO box ticked) on those same visits, using the clinician's own mix of office and home visits. CMS's rate-setting instead assumes B1 and B2 on many more visits (about $1.1 billion in 2027, from the factor in column I of its 2025 utilization file), which is why CMS's specialty table shows primary care rising. Typical-practice statements have no G2211 line, because CMS's claims file for them doesn't carry one, so they show neither G2211 nor B1.</li>
+<li><strong>Modifier 25.</strong> The new 20% same-day reduction is applied at claim time, so it isn't in the RVUs. The statement shows it as one adjustment row: CMS's own average reduction for the specialty, code and setting, from the factor CMS used in rate-setting (2025 utilization file, column H). A practice's real effect depends on how often its visits and procedures fall on the same day.</li>
+<li><strong>Anesthesia</strong> services are paid by base and time units, which CMS's public file doesn't carry. Their lines keep the average allowed amount CMS reports and move it by the change in the locality's anesthesia conversion factor ($20.4976 to $20.1056 nationally).</li>
+</ul>
+<h3>Clinician lookup</h3>
+<ul>
+<li>Services, place of service and average allowed amounts come from CMS's &ldquo;Medicare Physician &amp; Other Practitioners &ndash; by Provider and Service&rdquo; file for the latest published year. CMS hides any code a clinician billed for fewer than 11 beneficiaries, so small lines are missing.</li>
+<li>The file doesn't carry modifiers. For codes that can be billed as a professional or technical component, the page picks global, -26 or -TC by whichever 2026 rate in the clinician's locality is closest to the clinician's average allowed amount.</li>
+<li>Locality is set from the practice ZIP code in CMS's file, using CMS's ZIP-to-locality file. A clinician who works in several localities is priced in one.</li>
+<li>Drugs, lab tests and other services outside the physician fee schedule are set aside, not priced.</li>
+<li>Volumes stay fixed at the clinician's last reported year. Real 2027 revenue will also move with volume, payer mix, MIPS and sequestration.</li>
+</ul>
+</div>
+<div>
+<h3>Specialty figures</h3>
+<ul>
+<li>The specialty chart uses CMS's own impact table, so it carries CMS's B1/B2 assumption. The clinician counts and dollar totals in the text price each clinician's own services, with B1 only where G2211 was billed. The two answer different questions: what CMS's rate-setting expects, and what the same work pays.</li>
+<li>CMS's impact table counts only relative-value changes. This page combines it with the conversion factor change and each specialty's average change in geographic indices. The geographic change is measured on CMS's clinician-level file: every clinician's services priced at 2027 relative values, once with 2026 GPCIs and once with 2027 GPCIs, then summed by specialty.</li>
+<li>A recompute of CMS's table from CMS's 2025 utilization file reproduces it within rounding for specialties whose change doesn't depend on the G2211 swap. The page shows CMS's published figures, not the recompute.</li>
+<li>Clinician-level totals: every clinician in CMS's file with a locality and at least one fee-schedule line (about 1.14 million), priced with the same code that runs the statement, at the non-QP conversion factor. CMS's file is ${effects_year}; volumes are held fixed.</li>
+<li>Medicare specialty codes are grouped into CMS's impact categories using the Medicare specialty list; CMS doesn't publish its exact crosswalk. The grouping was checked against the table's allowed-charge totals.</li>
+</ul>
+<h3>Code labels</h3>
+<p>CPT codes and descriptions are copyright American Medical Association. This page shows CPT code numbers only and never the AMA's descriptors. The short labels are this site's own plain-English summaries; codes without one show the category from CMS's Restructured BETOS Classification System.</p>
+<h3>Sources</h3>
+<ul class="srcs">
+<li>CMS. CY2027 Physician Fee Schedule final rule, CMS-1848-F. Federal Register document 2026-22743 (public inspection November 4, 2026). Page cites are to the public-inspection PDF.</li>
+<li>CMS. CY2027 PFS final rule addenda (B, D, E); specialty impact file (updated November 5, 2026); specialty impacts by practitioner; impact on payment for selected procedures; 2025 utilization crosswalked to 2027; analytic crosswalk; modifier B1/B2 adjusted RVUs.</li>
+<li>CMS. PFS relative value file RVU26D (October 2026), GPCI, anesthesia and locality-county files.</li>
+<li>CMS. ZIP code to carrier locality file (2026 Q4).</li>
+<li>CMS. Medicare Physician &amp; Other Practitioners by Provider and Service, data.cms.gov.</li>
+<li>CMS. Restructured BETOS Classification System.</li>
+<li>Social Security Act &sect;1848(e)(1)(E); Pub. L. 119-75 &sect;6208; Pub. L. 119-21 &sect;71202.</li>
+<li>Conversion factors 1992&ndash;2026: each year's PFS final rule and CMS rate file; 1992&ndash;1994 from the 1998 House Ways and Means Green Book. MEI: Table A-C1 of the CY2027 rule and earlier rules. BLS CPI-U.</li>
+<li>Census Bureau cartographic boundary files (via us-atlas).</li>
+</ul>
+</div>
+</div>

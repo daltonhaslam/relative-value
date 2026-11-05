@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relative Value: your 2027 Medicare fee schedule raise or cut</title>
+<meta name="description" content="{{DESCRIPTION}}">
+<link rel="canonical" href="{{SITE_URL}}/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Relative Value: your 2027 Medicare fee schedule raise or cut">
+<meta property="og:description" content="{{DESCRIPTION}}">
+<meta property="og:url" content="{{SITE_URL}}/">
+<meta property="og:image" content="{{SITE_URL}}/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/archivo-latin-standard-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/courier-prime-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<style>{{CSS}}</style>
+</head>
+<body>
+<a class="sr" href="#main">Skip to content</a>
+<header class="mast">
+  <div class="wrap">
+    <a class="brand" href="./">Relative Value <small>The CY2027 physician fee schedule</small></a>
+    <nav aria-label="Sections">
+      <a href="#specialties">Specialties</a>
+      <a href="#statement">Your statement</a>
+      <a href="#map">Map</a>
+      <a href="#why">Why</a>
+      <a href="#history">Since 1992</a>
+      <a href="#methods">Methods</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <p class="byline">Built by Dalton Haslam, MD, MBA</p>
+      <h1>Medicare re&#8209;prices every clinician on January&nbsp;1.</h1>
+      <p class="dek">{{HERO_DEK}}</p>
+
+      <form class="lookup" id="lookup" role="search" autocomplete="off">
+        <label class="sr" for="q">Clinician name or NPI</label>
+        <div class="row">
+          <div class="box"><span class="lab" aria-hidden="true">Clinician name or 10-digit NPI</span>
+            <input id="q" name="q" type="search" inputmode="search" placeholder="e.g. Garcia Maria, or 1234567890" aria-describedby="q-help" aria-controls="q-results" aria-autocomplete="list" spellcheck="false">
+          </div>
+          <button class="btn" type="submit">Look up</button>
+        </div>
+        <ul class="results" id="q-results" hidden></ul>
+        <p class="privacy-note" id="q-help">{{LOOKUP_NOTE}}</p>
+      </form>
+      <p class="or">Or start from a typical practice:</p>
+      <div class="chips" id="hero-chips">{{HERO_CHIPS}}</div>
+    </div>
+
+    <div class="demo" aria-label="Example statement">
+      {{DEMO}}
+    </div>
+  </div>
+</section>
+
+<section class="chapter" id="specialties">
+  <div class="wrap two">
+    <div class="sticky">
+      <h2>Every specialty, priced in full</h2>
+      <p class="lede">{{SPEC_LEDE}}</p>
+      <div class="tally">
+        <div class="cut"><b>{{N_CUT}}</b><span>specialties paid less per service</span></div>
+        <div class="raise"><b>{{N_RAISE}}</b><span>paid more</span></div>
+      </div>
+      <p>{{SPEC_FACTS}}</p>
+      <p>{{SPEC_BODY}}</p>
+      <p class="note">{{SPEC_NOTE}}</p>
+    </div>
+    <figure>
+      <div class="legend" aria-hidden="true">
+        <span><i class="hollow"></i>CMS's impact table (relative values only)</span>
+        <span><i class="cut"></i><i class="raise"></i>With the conversion factor and the geographic changes</span>
+      </div>
+      {{SPEC_CHART}}
+      <figcaption>{{SPEC_CAPTION}}</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="chapter" id="statement">
+  <div class="wrap">
+    <h2>Your 2027 statement</h2>
+    <p class="lede">The same year of services, priced at 2026 rates and at 2027 rates. Change the volumes, the place of service or the locality; add or remove codes.</p>
+    <div class="controls" id="st-controls">
+      <div class="box"><span class="lab">Start from a specialty</span>
+        <select id="st-spec" aria-label="Start from a specialty">{{SPEC_OPTIONS}}</select></div>
+      <div class="box"><span class="lab">Practice ZIP code</span>
+        <input id="st-zip" inputmode="numeric" maxlength="5" pattern="[0-9]{5}" aria-label="Practice ZIP code" placeholder="national"></div>
+      <label class="check"><input type="checkbox" id="st-qp"> Qualifying APM participant (QP)</label>
+      <label class="check"><input type="checkbox" id="st-aco"> ACO or LEAD participant (modifier B2)</label>
+    </div>
+    <div id="st-root">{{STATEMENT_STATIC}}</div>
+    <p class="note" id="st-note">{{STATEMENT_NOTE}}</p>
+  </div>
+</section>
+
+<section class="chapter" id="spread">
+  <div class="wrap two even">
+    <div>
+      <h2>Not every clinician gets their specialty's average</h2>
+      <p class="lede">{{DIST_LEDE}}</p>
+      <div class="controls"><div class="box"><span class="lab">Specialty</span>
+        <select id="dist-spec" aria-label="Specialty for the distribution chart">{{SPEC_OPTIONS}}</select></div></div>
+      <p class="note">{{DIST_NOTE}}</p>
+    </div>
+    <figure id="dist-fig">{{DIST_CHART}}</figure>
+  </div>
+</section>
+
+<section class="chapter" id="map">
+  <div class="wrap">
+    <h2>Where the floor gives way</h2>
+    <p class="lede">{{MAP_LEDE}}</p>
+    <div class="controls">
+      <div class="box"><span class="lab">Service</span>
+        <select id="map-code" aria-label="Service to map">{{MAP_OPTIONS}}</select></div>
+      <div class="box"><span class="lab">Show</span>
+        <select id="map-measure" aria-label="What to show on the map">
+          <option value="pct">Change from 2026 to 2027</option>
+          <option value="usd">2027 payment</option>
+        </select></div>
+    </div>
+    <figure class="map-wrap" id="map-fig">
+      <div id="map-root" class="map" role="img" aria-label="{{MAP_ALT}}"><p class="note">The county map loads here.</p></div>
+      <div class="scale" id="map-scale"></div>
+      <figcaption>{{MAP_CAPTION}}</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="chapter" id="why">
+  <div class="wrap two">
+    <div class="sticky">
+      <h2>Why the dollar shrank</h2>
+      <p class="lede">{{WHY_LEDE}}</p>
+    </div>
+    <div>
+      <figure>{{WATERFALL}}<figcaption>{{WATERFALL_CAPTION}}</figcaption></figure>
+      <h3>What moved the relative values</h3>
+      <ul class="drivers">{{DRIVERS}}</ul>
+    </div>
+  </div>
+</section>
+
+<section class="chapter" id="history">
+  <div class="wrap two">
+    <div class="sticky">
+      <h2>Thirty-five years of the conversion factor</h2>
+      <p class="lede">{{HISTORY_LEDE}}</p>
+      <p class="note">{{HISTORY_NOTE}}</p>
+    </div>
+    <figure>{{HISTORY_CHART}}<figcaption>{{HISTORY_CAPTION}}</figcaption></figure>
+  </div>
+</section>
+
+<section class="chapter methods" id="methods">
+  <div class="wrap">
+    <h2>Methods and sources</h2>
+    {{METHODS}}
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div>
+      <p><strong>Relative Value</strong>. Built with Claude Code.</p>
+      <p>An independent, personal project. It does not represent the views of the author's employer, CMS or any medical society. Not billing, legal or financial advice.</p>
+    </div>
+    <div class="fb">
+      <p><a href="{{FEEDBACK}}">Send feedback or a correction</a></p>
+      <p>Data as of {{DATA_DATE}}.</p>
+    </div>
+  </div>
+</footer>
+<div class="tip" id="tip" role="tooltip"></div>
+<script type="application/json" id="boot">{{BOOT}}</script>
+<script type="module">{{JS}}</script>
+</body>
+</html>

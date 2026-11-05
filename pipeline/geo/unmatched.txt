@@ -1,0 +1,5 @@
+(none) every us-atlas county has exactly one CY2026 locality key
+
+GPCI2026 localities with no county on the map (expected: territories not in the geoAlbersUsa atlas):
+  09202-20 PR PUERTO RICO
+  09202-50 VI VIRGIN ISLANDS

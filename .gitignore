@@ -1,0 +1,11 @@
+__pycache__/
+.DS_Store
+.project-status
+*.duckdb
+*.pyc
+data/raw/
+data/work/
+dist/
+node_modules/
+pipeline/**/node_modules/
+web/e2e/screenshots/
