@@ -85,6 +85,7 @@ function draw({ press = false } = {}) {
 }
 
 function loadPreset(key, { scroll = false } = {}) {
+  loadSeq++;
   const s = specByKey[key];
   if (!s) return;
   st.who = null;
@@ -100,25 +101,29 @@ function loadPreset(key, { scroll = false } = {}) {
   if (scroll) scrollToStatement();
 }
 
+let loadSeq = 0; // bumped by every lookup or preset load, so late async steps can tell they're stale
+
 /** Load a clinician's statement. Resolves after drawing (or after the fallback, if the NPI can't be loaded). */
 async function loadNpi(npi, { scroll = true } = {}) {
   const res = $("#q-results");
   // Nothing on the statement yet (e.g. a shared ?npi= link): show a typical practice instead of an empty sheet.
-  const fallback = async () => {
+  const fallback = async (why) => {
     if (st.lines.length) return;
     await ready;
     loadPreset(boot.defaultSpec);
-    toast(`No clinician with NPI ${npi} in CMS's ${boot.dataYear} file; showing a typical practice instead.`);
+    toast(`${why} Showing a typical practice instead.`);
   };
+  const seq = ++loadSeq;
   try {
     const rec = await npiRecord(npi);
     if (!rec) {
       res.hidden = false;
       res.innerHTML = `<li class="msg">No clinician with NPI ${esc(npi)} in CMS's ${boot.dataYear} file. The file covers clinicians who billed Medicare Part B fee-for-service that year.</li>`;
-      await fallback();
+      await fallback(`No clinician with NPI ${npi} in CMS's ${boot.dataYear} file.`);
       return;
     }
     await ready;
+    if (seq !== loadSeq) return; // a newer lookup started meanwhile
     st.who = { name: rec.name, npi: rec.npi, type: rec.providerType };
     st.specKey = impactGroup(rec.providerType);
     st.locKey = rec.locality || null;
@@ -138,14 +143,14 @@ async function loadNpi(npi, { scroll = true } = {}) {
   } catch (e) {
     res.hidden = false;
     res.innerHTML = `<li class="msg">${esc(e.message)}</li>`;
-    await fallback();
+    await fallback(`Couldn't load NPI ${npi}: ${e.message}`);
   }
 }
 
 /* URL state: ?npi=…[&s=…&z=…&l=…] (an NPI statement's changes from its record) or ?s=<specialty>&z=<zip>&qp=1&l=code:pos:n,… */
 const linesParam = () => st.lines.map((l) => `${l.mod ? `${l.hcpcs}-${l.mod}` : l.hcpcs}:${l.pos}:${Math.round(l.services * 10) / 10}`).join(",");
 function parseLines(l) {
-  return l.split(",").slice(0, 200).map((t) => {
+  return l.split(",").slice(0, 400).map((t) => {
     const [code, pos, n] = t.split(":");
     const [hcpcs, mod = ""] = (code || "").toUpperCase().split("-");
     return { hcpcs, mod, pos: pos === "F" ? "F" : "O", services: Math.max(0, Number(n) || 0) };
@@ -180,11 +185,28 @@ async function readUrl() {
   const l = p.get("l");
   if (npi && /^\d{10}$/.test(npi)) {
     await loadNpi(npi, { scroll: false });
-    if (st.source !== "npi") return; // not found: loadNpi fell back to a typical practice
-    if (s && specByKey[s]) { st.specKey = s; $("#st-spec").value = s; }
-    if (z != null && (z === "" || /^\d{5}$/.test(z)) && z !== st.zip) { $("#st-zip").value = z; await setZip(z); }
-    if (l != null) { st.lines = parseLines(l); st.edited = true; st.volumes = st.volumes.replace(/( \(edited\))?$/, " (edited)"); }
-    draw();
+    if (st.source !== "npi" || st.who?.npi !== npi) return; // not found (fell back) or superseded
+    const seq = loadSeq;
+    const recLines = st.lines;
+    let changed = false;
+    if (s && specByKey[s]) { st.specKey = s; $("#st-spec").value = s; changed = true; }
+    if (z != null && (z === "" || /^\d{5}$/.test(z)) && z !== st.zip) {
+      const key = z ? await zipToLocality(z) : null;
+      if (seq !== loadSeq) return; // the reader looked up someone else meanwhile
+      $("#st-zip").value = z;
+      st.zip = z;
+      st.locKey = key;
+      changed = true;
+    }
+    if (l != null) {
+      // Keep each line's average allowed amount from the record (anesthesia lines are priced from it).
+      const avg = new Map(recLines.map((x) => [`${x.hcpcs}-${x.mod}:${x.pos}`, x.avgAllowed]));
+      st.lines = parseLines(l).map((x) => ({ ...x, avgAllowed: avg.get(`${x.hcpcs}-${x.mod}:${x.pos}`) }));
+      st.edited = true;
+      st.volumes = st.volumes.replace(/( \(edited\))?$/, " (edited)");
+      changed = true;
+    }
+    if (changed) draw({ press: true });
     return;
   }
   loadPreset(specByKey[s] ? s : boot.defaultSpec);
@@ -275,7 +297,8 @@ function suggestCodes(q) {
     }).filter((c) => {
       // Only codes the statement can price in both years (or a deleted code CMS crosswalks to 2027 codes).
       const r = T.table.codes[c.k];
-      return ((r[0] != null || r[2] != null) && (r[4] != null || r[6] != null)) || !!T.table.crosswalk[c.k];
+      // G2211 has no 2027 RVUs but is priced as modifier B1/B2 on the visits.
+      return ((r[0] != null || r[2] != null) && (r[4] != null || r[6] != null)) || !!T.table.crosswalk[c.k] || c.k === "G2211";
     });
   }
   const words = q.split(/\s+/);
