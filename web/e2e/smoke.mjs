@@ -1,5 +1,5 @@
 // End-to-end: drives the built page in Chromium. Run with the docs/ folder served on :8765.
-import { chromium } from "playwright";
+import { launch } from "./browser.mjs";
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import assert from "node:assert/strict";
@@ -11,7 +11,7 @@ const shard = JSON.parse(gunzipSync(readFileSync(new URL("../../docs/data/npi/21
 const rec = shard.recs.find((r) => r[7].length > 20 && r[2] === "Family Practice" && r[6]);
 const last = rec[1].split(",")[0].split(" ").pop();
 
-const b = await chromium.launch({ executablePath: process.env.CHROME || `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` });
+const b = await launch();
 const errors = [];
 const p = await b.newPage({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
 p.on("pageerror", (e) => errors.push(e.message));

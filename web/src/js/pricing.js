@@ -6,14 +6,14 @@
 const IDX = { 2026: [0, 1, 2, 3], 2027: [4, 5, 6, 7] };
 const ANES = /^0[01]\d{3}$/;
 
-export const isAnesthesia = (hcpcs) => ANES.test(hcpcs);
+const isAnesthesia = (hcpcs) => ANES.test(hcpcs);
 
 export function codeKey(hcpcs, mod) {
   return mod ? `${hcpcs}-${mod}` : hcpcs;
 }
 
 /** RVUs for one year: { w, pe, mp } or null when the code isn't payable that year. */
-export function rvus(table, key, year, pos) {
+function rvus(table, key, year, pos) {
   const r = table.codes[key];
   if (!r) return null;
   const [iw, inf, ifac, imp] = IDX[year];
@@ -32,7 +32,7 @@ export function price(table, key, { rvuYear, gpci = NATIONAL, cfYear = rvuYear, 
 }
 
 /** Anesthesia conversion factor for a locality: national anesthesia CF x CMS's locality blend. */
-export function anesCf(table, weights, gpci, year, cfKind = "nonqp") {
+function anesCf(table, weights, gpci, year, cfKind = "nonqp") {
   const [a, b, c] = weights;
   return table.anesCf[year][cfKind] * (a * gpci[0] + b * gpci[1] + c * gpci[2]);
 }
@@ -44,10 +44,11 @@ export function anesCf(table, weights, gpci, year, cfKind = "nonqp") {
  * line: { hcpcs, mod, pos, services, avgAllowed }
  * ctx:  { table, loc: {g26, g27}, anesWeights, cfKind, m25, aco, share }  (m25: CMS factors for one specialty)
  */
-export function priceLine(line, s, ctx) {
+function priceLine(line, s, ctx) {
   const { table, loc, cfKind } = ctx;
   const gpci = s.gpciYear === 2026 ? loc.g26 : loc.g27;
   const key = codeKey(line.hcpcs, line.mod);
+  const share = ctx.share ?? 1; // statutory share of the fee schedule (NP/PA 85%, LCSW and counselors 75%)
 
   if (isAnesthesia(line.hcpcs)) {
     // Base and time units aren't in CMS's public file: move the line's average allowed amount
@@ -63,11 +64,10 @@ export function priceLine(line, s, ctx) {
     // (B2, 32%, for Shared Savings Program ACO and LEAD participants). Same visits, same count.
     const uplift = ctx.aco ? table.b1.b2 : table.b1.b1;
     const work = ctx.emWork27 ?? table.codes["99214"][4];
-    const amt = uplift * work * gpci[0] * table.cf[s.cfYear][cfKind] * (ctx.share ?? 1);
+    const amt = uplift * work * gpci[0] * table.cf[s.cfYear][cfKind] * share;
     return { amount: line.services * amt, how: ctx.aco ? "b2" : "b1" };
   }
 
-  const share = ctx.share ?? 1; // statutory share of the fee schedule (NP/PA 85%, LCSW and counselors 75%)
   let unit = price(table, key, { rvuYear: s.rvuYear, gpci, cfYear: s.cfYear, pos: line.pos, cfKind });
   if (unit == null && s.rvuYear === 2027 && table.crosswalk[key]) {
     // Code deleted for 2027: CMS's analytic crosswalk spreads its volume over the new codes.
@@ -91,7 +91,7 @@ export function priceLine(line, s, ctx) {
 }
 
 /** Services-weighted 2027 work RVU of the office and home visits on a statement (prices B1 for G2211). */
-export function emWork27(table, lines) {
+function emWork27(table, lines) {
   let n = 0;
   let w = 0;
   for (const l of lines) {
@@ -101,6 +101,14 @@ export function emWork27(table, lines) {
     w += l.services * r[4];
   }
   return n ? w / n : null;
+}
+
+/** Statement lines from a specialty preset: [[code, pos, services], …] with code "HCPCS" or "HCPCS-MOD". */
+export function presetLines(preset) {
+  return preset.map(([code, pos, n]) => {
+    const [hcpcs, mod = ""] = code.split("-");
+    return { hcpcs, mod, pos, services: n };
+  });
 }
 
 /** Medicare pays some clinicians a statutory share of the fee schedule amount. */
@@ -127,7 +135,7 @@ export function statement(lines, ctx) {
   const adj = { mod25: { y26: 0, y27: 0 } };
   ctx = { ...ctx, emWork27: emWork27(ctx.table, lines) };
   const off = [];
-  for (const line of lines) {
+  for (const [idx, line] of lines.entries()) {
     const p = {};
     let ok = true;
     for (const k of Object.keys(S)) {
@@ -141,7 +149,7 @@ export function statement(lines, ctx) {
       if (p[k].adj) totals[k] += p[k].adj.mod25;
     }
     if (p.full.adj) adj.mod25.y27 += p.full.adj.mod25;
-    rows.push({ line, y26: p.base.amount, y27: p.full.amount, how: p.full.how || p.base.how });
+    rows.push({ line, idx, y26: p.base.amount, y27: p.full.amount, how: p.full.how || p.base.how });
   }
   const pct = (a, b) => (b ? a / b - 1 : 0);
   return {

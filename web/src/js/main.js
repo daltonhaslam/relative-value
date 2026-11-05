@@ -1,7 +1,7 @@
-import { feeShare, statement } from "./pricing.js";
+import { feeShare, presetLines, statement } from "./pricing.js";
 import { renderStatement } from "./statement.js";
-import { distChart, pctFmt, specialtyChart, usd } from "./charts.js";
-import { load, npiRecord, pricingTables, zipToLocality } from "./data.js";
+import { distChart, esc, pctFmt } from "./charts.js";
+import { npiRecord, pricingTables, zipToLocality } from "./data.js";
 import { SPEC_NAMES, impactGroup } from "./names.js";
 import { searchNames } from "./search.js";
 import { initMap } from "./map.js";
@@ -10,7 +10,8 @@ import { shareImage } from "./share.js";
 const boot = JSON.parse(document.getElementById("boot").textContent);
 const $ = (s, r = document) => r.querySelector(s);
 const tip = $("#tip");
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const scrollToStatement = () => $("#statement").scrollIntoView({ behavior: still ? "auto" : "smooth" });
 
 let T = null; // { table, m25, rbcs }
 const st = {
@@ -55,15 +56,14 @@ function compute() {
     aco: st.aco,
     share: st.who ? feeShare(st.who.type) : 1,
   };
-  return statement(st.lines, ctx);
+  return { res: statement(st.lines, ctx), cfKind, loc };
 }
 
+let drawnLoc; // locality at the last draw: the map only repaints its "you" marker when this changes
 function draw({ press = false } = {}) {
   const root = $("#st-root");
   if (!T) return;
-  const res = compute();
-  const cfKind = st.qp ? "qp" : "nonqp";
-  const loc = locFor(st.locKey);
+  const { res, cfKind, loc } = compute();
   const view = {
     ...st,
     specName: SPEC_NAMES[st.specKey] || st.specKey,
@@ -77,7 +77,10 @@ function draw({ press = false } = {}) {
   highlightSpec(st.specKey);
   drawDist(st.specKey, res);
   writeUrl();
-  document.dispatchEvent(new Event("rv:locality"));
+  if (st.locKey !== drawnLoc) {
+    drawnLoc = st.locKey;
+    document.dispatchEvent(new Event("rv:locality"));
+  }
 }
 
 function loadPreset(key, { scroll = false } = {}) {
@@ -87,15 +90,12 @@ function loadPreset(key, { scroll = false } = {}) {
   st.specKey = key;
   st.title = `Typical ${s.name.toLowerCase()} practice`;
   st.volumes = `CMS 2025 claims, average services per ${s.name.toLowerCase()} practitioner (${(s.practitionersK * 1000).toLocaleString("en-US")} nationally)`;
-  st.lines = s.preset.map(([code, pos, n]) => {
-    const [hcpcs, mod = ""] = code.split("-");
-    return { hcpcs, mod, pos, services: n };
-  });
+  st.lines = presetLines(s.preset);
   st.expanded = false;
   st.source = "preset";
   $("#st-spec").value = key;
   draw({ press: true });
-  if (scroll) $("#statement").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  if (scroll) scrollToStatement();
 }
 
 async function loadNpi(npi, { scroll = true } = {}) {
@@ -120,7 +120,7 @@ async function loadNpi(npi, { scroll = true } = {}) {
     if (specByKey[st.specKey]) $("#st-spec").value = st.specKey;
     res.hidden = true;
     draw({ press: true });
-    if (scroll) $("#statement").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    if (scroll) scrollToStatement();
   } catch (e) {
     res.hidden = false;
     res.innerHTML = `<li class="msg">${esc(e.message)}</li>`;
@@ -185,7 +185,7 @@ function wireStatement() {
     const line = tr ? st.lines[Number(tr.dataset.i)] : null;
     const act = b.dataset.act;
     if (act === "pos" && line) { line.pos = line.pos === "F" ? "O" : "F"; touch(); }
-    if (act === "rm" && line) { st.lines.splice(st.lines.indexOf(line), 1); touch(); }
+    if (act === "rm" && line) { st.lines.splice(Number(tr.dataset.i), 1); touch(); }
     if (act === "more") { st.expanded = true; draw(); }
     if (act === "link") {
       try { await navigator.clipboard.writeText(location.href); toast("Link copied"); } catch { toast("Copy the address bar to share this statement"); }
@@ -200,10 +200,18 @@ function wireStatement() {
     line.services = Math.max(0, Number(e.target.value) || 0);
     touch();
   });
-  root.addEventListener("input", (e) => { if (e.target.id === "add-code") suggestCodes(e.target.value); });
+  let suggestTimer = 0;
+  root.addEventListener("input", (e) => {
+    if (e.target.id !== "add-code") return;
+    const q = e.target.value;
+    clearTimeout(suggestTimer);
+    suggestTimer = setTimeout(() => suggestCodes(q), 120);
+  });
   root.addEventListener("keydown", (e) => {
     if (e.target.id === "add-code" && e.key === "Enter") {
       e.preventDefault();
+      clearTimeout(suggestTimer);
+      suggestCodes(e.target.value);
       const first = $("#add-results button");
       if (first) addCode(first.dataset.code);
     }
@@ -304,7 +312,10 @@ function wireLookup() {
 }
 
 /* ---------------- specialty chart ---------------- */
+let highlighted;
 function highlightSpec(key) {
+  if (key === highlighted) return;
+  highlighted = key;
   document.querySelectorAll(".specchart .spec-row").forEach((g) => g.classList.toggle("you", g.dataset.key === key));
 }
 function wireSpecChart() {
@@ -341,18 +352,22 @@ function wireSpecChart() {
 }
 
 /* ---------------- distribution ---------------- */
+const BIN_EDGES = [-0.2, -0.1, -0.05, -0.02, -0.01, 0.01, 0.02, 0.05, 0.1, 0.2];
 function binOf(p) {
-  const edges = [-0.2, -0.1, -0.05, -0.02, -0.01, 0.01, 0.02, 0.05, 0.1, 0.2];
   let i = 0;
-  while (i < edges.length && p >= edges[i]) i++;
+  while (i < BIN_EDGES.length && p >= BIN_EDGES[i]) i++;
   return i;
 }
+let drawnDist;
 function drawDist(key, res) {
   const s = specByKey[key] || specByKey[$("#dist-spec").value];
   if (!s || !s.dist) return;
   $("#dist-spec").value = s.key;
   // CMS's bins measure the change in total RVUs: compare the statement's RVU-and-rules effect only.
   const you = res && s.key === st.specKey && res.totals.cf ? binOf(res.effects.rvu / res.totals.cf) : -1;
+  const memo = `${s.key}|${you}`;
+  if (memo === drawnDist) return;
+  drawnDist = memo;
   $("#dist-fig").innerHTML = distChart(s.dist, boot.bins, you)
     + `<figcaption>${esc(s.name)}: share of about ${(s.practitionersK * 1000).toLocaleString("en-US")} practitioners by their change in total RVUs, CMS's 2025-claims estimate.${you >= 0 ? " “You” is the statement above, relative values and payment rules only." : ""}</figcaption>`;
 }
@@ -370,7 +385,6 @@ function wireHistory() {
 }
 
 /* ---------------- hero: the printer feeds the remittance, then the 2027 column types in ---------------- */
-const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
 function playDemo() {
   const demo = $(".demo");
   if (!demo || still) return;

@@ -1,8 +1,8 @@
 // Screenshots for design review: node e2e/shot.mjs [url] [outdir]
-import { chromium } from "playwright";
+import { launch } from "./browser.mjs";
 const url = process.argv[2] || "http://localhost:8765/";
 const out = process.argv[3] || new URL("./screenshots/", import.meta.url).pathname;
-const b = await chromium.launch({ executablePath: process.env.CHROME || `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` });
+const b = await launch();
 const errors = [];
 for (const [name, vp, scheme] of [["desktop", { width: 1440, height: 900 }, "light"], ["mobile", { width: 390, height: 844 }, "light"], ["dark", { width: 1440, height: 900 }, "dark"]]) {
   const p = await b.newPage({ viewport: vp, colorScheme: scheme, reducedMotion: "reduce" });

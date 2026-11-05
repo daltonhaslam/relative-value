@@ -1,9 +1,9 @@
 // Build docs/index.html: data + pre-rendered charts + copy, CSS and JS inlined; fonts copied; vercel.json CSP hashed.
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { build } from "esbuild";
-import { statement } from "./src/js/pricing.js";
-import { historyChart, pctFmt, specialtyChart, specialtyTable, usd, waterfall, distChart } from "./src/js/charts.js";
+import { presetLines, price, statement } from "./src/js/pricing.js";
+import { esc, historyChart, pctFmt, specialtyChart, specialtyTable, usd, waterfall, distChart } from "./src/js/charts.js";
 import { SPEC_NAMES } from "./src/js/names.js";
 
 const R = (p) => new URL(`../${p}`, import.meta.url);
@@ -13,14 +13,15 @@ const SITE_URL = process.env.SITE_URL || "https://relative-value.vercel.app";
 const FEEDBACK = "https://docs.google.com/forms/d/e/1FAIpQLSekdB41siZs44_4gLNBGD2OqalK2TGNk7o8Q0bHl20ggYBy_Q/viewform"
   + `?entry.2047320042=${encodeURIComponent("Relative Value")}&entry.1326474028=${encodeURIComponent(SITE_URL + "/")}`;
 const DATA_DATE = "November 5, 2026 (CY2027 PFS final rule, public inspection November 4, 2026)";
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const codes = json("docs/data/codes.json");
 const locs = json("docs/data/localities.json");
 const specs = json("docs/data/specialties.json");
-const effects = existsSync(R("pipeline/stats/specialty_effects.json")) ? json("pipeline/stats/specialty_effects.json") : { groups: {}, overall: null };
+const effects = json("pipeline/stats/specialty_effects.json");
 const b12 = json("pipeline/stats/cms_b12.json");
 const CFR = codes.cf[2027].nonqp / codes.cf[2026].nonqp - 1;
+const CFR_QP = codes.cf[2027].qp / codes.cf[2026].qp - 1;
+const CF_CUT = pctFmt(CFR, 2).slice(1); // "2.31%", the size of the cut without its sign
 
 /* ---------- specialty rows ---------- */
 const rows = specs.specialties
@@ -37,6 +38,10 @@ const rows = specs.specialties
     };
   })
   .sort((a, b) => b.all - a.all);
+// The prose below names these specialties; fail the build if the data moves them.
+if (rows[0].key !== "CLINICAL SOCIAL WORKER" || rows[1].key !== "CLINICAL PSYCHOLOGIST" || rows[rows.length - 1].key !== "ORTHOPEDIC SURGERY") {
+  throw new Error(`SPEC_BODY names clinical social workers and psychologists as the biggest gains and orthopedic surgery as the biggest loss; the data now has ${rows[0].key}, ${rows[1].key} first and ${rows[rows.length - 1].key} last. Update SPEC_BODY.`);
+}
 const nCut = rows.filter((r) => r.all < -0.0005).length;
 const nRaise = rows.filter((r) => r.all > 0.0005).length;
 const pick = (k) => rows.find((r) => r.key === k);
@@ -44,13 +49,10 @@ const pick = (k) => rows.find((r) => r.key === k);
 /* ---------- demo statement (typical family medicine, national) ---------- */
 const DEMO_SPEC = "FAMILY PRACTICE";
 const demoSpec = pick(DEMO_SPEC);
-const demoLines = demoSpec.preset.slice(0, 6).map(([code, pos, n]) => {
-  const [hcpcs, mod = ""] = code.split("-");
-  return { hcpcs, mod, pos, services: n };
-});
+const demoLines = presetLines(demoSpec.preset.slice(0, 6));
 const fx = json("docs/data/m25.json");
 const demoRes = statement(demoLines, {
-  table: codes, loc: { g26: [1, 1, 1], g27: [1, 1, 1] }, anesWeights: locs.anesWeights, cfKind: "nonqp", m25: fx.factors[DEMO_SPEC], b12: null,
+  table: codes, loc: { g26: [1, 1, 1], g27: [1, 1, 1] }, anesWeights: locs.anesWeights, cfKind: "nonqp", m25: fx.factors[DEMO_SPEC],
 });
 const cls = (v) => (v < -0.0005 ? "cut" : v > 0.0005 ? "raise" : "");
 function demoHtml() {
@@ -75,6 +77,10 @@ function demoHtml() {
 
 /* ---------- conversion factor waterfall ---------- */
 const cf26 = codes.cf[2026].nonqp, cfNoBump = 32.5863, cfUpd = cfNoBump * 1.0025;
+// The literals above are CMS's published steps; fail the build if the data no longer agrees with them.
+if (Math.abs(cfNoBump * 1.0025 * 0.9988 - codes.cf[2027].nonqp) >= 0.0006 || Math.abs(cf26 / 1.025 - cfNoBump) >= 0.0006) {
+  throw new Error("Conversion factor waterfall literals (cfNoBump, +0.25%, -0.12%) no longer reproduce codes.json; update build.mjs.");
+}
 const steps = [
   { label: "2026 conversion factor", sub: "includes a one-year 2.50% increase", value: cf26 },
   { label: "The 2.50% increase ends", sub: "Pub. L. 119-21 §71202", value: cfNoBump - cf26 },
@@ -98,9 +104,9 @@ const series = hist.slice(1).map(parseCsv).map((p) => {
 const h0 = series[0], hN = series[series.length - 1];
 
 /* ---------- drivers (CMS-1848-F, public-inspection page cites) ---------- */
-const p90837 = [167.0, 183.37];
+const p90837 = [2026, 2027].map((rvuYear) => price(codes, "90837", { rvuYear, pos: "O" }));
 const drivers = [
-  ["−2.31%", "The conversion factor", `$33.4009 becomes $32.6286. Most of that is the end of 2026's one-year 2.50% increase; the statute's +0.25% update and a −0.12% budget-neutrality factor follow. Qualifying APM participants get $32.9548 (−1.83%). CMS's specialty table leaves this out: the conversion factor updates "are not captured in the specialty impacts" (PI pp. 1971–1977).`],
+  [pctFmt(CFR, 2), "The conversion factor", `${usd(codes.cf[2026].nonqp, 4)} becomes ${usd(codes.cf[2027].nonqp, 4)}. Most of that is the end of 2026's one-year 2.50% increase; the statute's +0.25% update and a −0.12% budget-neutrality factor follow. Qualifying APM participants get ${usd(codes.cf[2027].qp, 4)} (${pctFmt(CFR_QP, 2)}). CMS's specialty table leaves this out: the conversion factor updates "are not captured in the specialty impacts" (PI pp. 1971–1977).`],
   ["−20%", "Same-day visits with modifier 25", "When an office visit billed with modifier 25 falls on the same day as a 0-day-global procedure by the same physician, or a same-specialty colleague in the group, every service except the highest-paid one is paid 20% less. CMS had proposed 50% across 0-, 10- and 90-day globals. It hits dermatology, otolaryngology and orthopedics hardest (PI pp. 402–403, 1974)."],
   ["G2211 → B1", "The complexity add-on becomes a modifier", `G2211 ends. Office and home visits instead carry modifier B1, worth 16% of the visit's work RVUs, or B2 (32%) for Shared Savings Program ACO and LEAD participants. On a level-4 established visit B1 adds 0.31 RVU; G2211 added 0.52 (PI pp. 329, 341; CMS B1/B2 file). CMS's budget-neutrality math expects B1 and B2 to pay about $${(b12.b12Dollars2027 / 1e9).toFixed(1)} billion in 2027. In CMS's ${effects.dataYear} clinician file G2211 paid $${Math.round(effects.g2211.dollars2026 / 1e6)} million at 2026 rates; B1 on those same visits would pay $${Math.round(effects.g2211.b1SameVisits2027 / 1e6)} million.`],
   ["½", "The indirect practice cost index is halved", "CMS is removing the index it uses to spread indirect practice costs across specialties: half in 2027, all of it in 2028. A new cap limits any code's practice-expense change to 5% a year (PI p. 1974)."],
@@ -116,9 +122,9 @@ const nLoc = Object.keys(locs.localities).length;
 const pct0 = (v) => `${Math.round(v * 100)}%`;
 const mil = (v) => `${(v / 1e6).toFixed(2)} million`;
 const copy = {
-  DESCRIPTION: `The 2027 Medicare physician fee schedule cuts the conversion factor 2.31% and ends the work GPCI floor. See every specialty's change and price any clinician's own services and locality.`,
-  HERO_DEK: `In 2027 the conversion factor falls <strong>2.31%</strong> and the floor under the work GPCI ends. Priced on what each clinician billed in ${effects.dataYear}, <strong>${pct0(effects.cut / effects.clinicians)}</strong> of the ${mil(effects.clinicians)} clinicians in CMS's public file are paid less for the same work. Look anyone up.`,
-  LOOKUP_NOTE: `Names, NPIs and service counts are from CMS's public file of Medicare Part B services by clinician (${effects.dataYear || 2024}, the latest year published). Searching only loads data files from this site. Nothing is stored or tracked.`,
+  DESCRIPTION: `The 2027 Medicare physician fee schedule cuts the conversion factor ${CF_CUT} and ends the work GPCI floor. See every specialty's change and price any clinician's own services and locality.`,
+  HERO_DEK: `In 2027 the conversion factor falls <strong>${CF_CUT}</strong> and the floor under the work GPCI ends. Priced on what each clinician billed in ${effects.dataYear}, <strong>${pct0(effects.cut / effects.clinicians)}</strong> of the ${mil(effects.clinicians)} clinicians in CMS's public file are paid less for the same work. Look anyone up.`,
+  LOOKUP_NOTE: `Names, NPIs and service counts are from CMS's public file of Medicare Part B services by clinician (${effects.dataYear}, the latest year published). Searching only loads data files from this site. Nothing is stored or tracked.`,
   HERO_CHIPS: ["FAMILY PRACTICE", "INTERNAL MEDICINE", "CARDIOLOGY", "ORTHOPEDIC SURGERY", "DERMATOLOGY", "NURSE PRACTITIONER", "CLINICAL SOCIAL WORKER", "OPHTHALMOLOGY", "EMERGENCY MEDICINE", "RADIOLOGY"]
     .map((k) => `<button type="button" class="chip" data-spec="${esc(k)}">${esc(SPEC_NAMES[k])}</button>`).join(""),
   SPEC_LEDE: "CMS's impact table shows how each specialty's relative values move. It leaves out the conversion factor, which falls for everyone, and the end of the work GPCI floor.",
@@ -128,7 +134,7 @@ const copy = {
   SPEC_BODY: `Clinical social workers and psychologists gain the most, from practice-expense changes and the last step of the behavioral-health work increase. Orthopedic surgery and otolaryngology lose the most, from the new same-day modifier-25 reduction, the halving of the indirect practice cost index and, for joint replacement, an 18% cut per case. Click a specialty to price a typical practice.`,
   SPEC_NOTE: `Each figure is a change in payment per service, holding the specialty's 2025 mix of services fixed. More or fewer services will move actual revenue. CMS rounds its table to whole percents, so the combined figures can be off by about half a point. Anesthesia services use the anesthesia conversion factor (${pctFmt(codes.anesCf[2027].nonqp / codes.anesCf[2026].nonqp - 1)}).`,
   SPEC_CHART: specialtyChart(rows) + specialtyTable(rows),
-  SPEC_CAPTION: `Hollow mark: CMS's estimated impact of relative-value changes on 2027 allowed charges, by specialty (CY2027 PFS final rule specialty impact file, updated November 5, 2026). Filled mark: that change combined with the conversion factor (Tables D-B1, D-B2)${effects.overall ? ` and each specialty's average change in geographic indices, from CMS's ${effects.dataYear} clinician-level file priced at 2026 and 2027 GPCIs` : ""}. Suppliers and facilities (labs, testing facilities, portable x-ray) are left off.`,
+  SPEC_CAPTION: `Hollow mark: CMS's estimated impact of relative-value changes on 2027 allowed charges, by specialty (CY2027 PFS final rule specialty impact file, updated November 5, 2026). Filled mark: that change combined with the conversion factor (Tables D-B1, D-B2) and each specialty's average change in geographic indices, from CMS's ${effects.dataYear} clinician-level file priced at 2026 and 2027 GPCIs. Suppliers and facilities (labs, testing facilities, portable x-ray) are left off.`,
   SPEC_OPTIONS: [...rows].sort((a, b) => a.name.localeCompare(b.name)).filter((r) => r.preset.length).map((r) => `<option value="${esc(r.key)}"${r.key === DEMO_SPEC ? " selected" : ""}>${esc(r.name)}</option>`).join(""),
   STATEMENT_STATIC: `<p class="empty">The statement needs JavaScript. The specialty chart above and the methods below work without it.</p>`,
   STATEMENT_NOTE: "Rates are Medicare allowed amounts (Medicare's payment plus the patient's coinsurance) before sequestration and MIPS adjustments, which apply the same way in both years. Place of service follows CMS's file: “Office” is non-facility, “Facility” is a hospital or ASC. A clinician's locality comes from the practice ZIP in CMS's file; clinicians who work in several localities are priced in one.",
@@ -142,7 +148,7 @@ const copy = {
   MAP_CAPTION: "Each county takes its Medicare payment locality's rate (CMS 2026 locality-county file). 2026 work GPCIs include the 1.0 floor; 2027 work GPCIs are from Addendum E of the CY2027 final rule. Non-qualifying APM conversion factor.",
   WHY_LEDE: "Most of the 2027 cut isn't new. It's the end of a one-year 2.50% increase Congress set for 2026. Underneath, CMS moved value between specialties, and Congress let the work GPCI floor lapse.",
   WATERFALL: waterfall(steps),
-  WATERFALL_CAPTION: "CY2027 PFS final rule, Table D-B2. The qualifying APM conversion factor follows the same steps with a +0.75% update: $33.5675 to $32.9548 (Table D-B1).",
+  WATERFALL_CAPTION: `CY2027 PFS final rule, Table D-B2. The qualifying APM conversion factor follows the same steps with a +0.75% update: ${usd(codes.cf[2026].qp, 4)} to ${usd(codes.cf[2027].qp, 4)} (Table D-B1).`,
   DRIVERS: drivers.map(([fig, h, p]) => `<li><span class="fig">${esc(fig)}</span><div><h4>${esc(h)}</h4><p>${esc(p)}</p></div></li>`).join(""),
   HISTORY_LEDE: `In ${h0.year} the conversion factor was $${h0.cf.toFixed(2)}. In ${hN.year} it is $${hN.cf.toFixed(2)}. Over the same years CMS's Medicare Economic Index, its own measure of the cost of running a practice, rose ${Math.round((hN.mei / h0.cf - 1) * 100)}%. A ${h0.year} conversion factor grown by the MEI would be $${hN.mei.toFixed(2)} in ${hN.year}.`,
   HISTORY_NOTE: "Before 1998 Medicare had separate conversion factors for surgery, primary care and other services; the line follows the primary-care factor for 1993–1997. Years with a mid-year change use the day-weighted average. Values for 1992–1994 are from the House Ways and Means Green Book; later years from each year's final rule or CMS rate file. The 2027 MEI (2.6%) is CMS's estimate.",
@@ -157,7 +163,7 @@ const copy = {
 /* ---------- boot data for the page script ---------- */
 const bootData = {
   siteUrl: SITE_URL,
-  dataYear: effects.dataYear || 2024,
+  dataYear: effects.dataYear,
   defaultSpec: DEMO_SPEC,
   anesWeights: locs.anesWeights,
   bins: specs.bins,

@@ -13,6 +13,7 @@ const FX = JSON.parse(readFileSync(D("m25.json")));
 const m25 = FX.factors;
 const meta = JSON.parse(readFileSync(D("npi/meta.json")));
 const F = meta.recordFields, L = meta.lineFields;
+const [iHcpcs, iMod, iPos, iServices, iAvg] = ["hcpcs", "mod", "pos", "services", "avgAllowed"].map((k) => L.indexOf(k));
 
 const groups = {};
 const pcts = [];
@@ -26,7 +27,7 @@ for (let s = 0; s < 1000; s++) {
     const rec = Object.fromEntries(F.map((k, i) => [k, r[i]]));
     const loc = locs.localities[rec.locality];
     if (!loc) { nNoLoc++; continue; }
-    const lines = rec.lines.map((l) => ({ hcpcs: l[L.indexOf("hcpcs")], mod: l[L.indexOf("mod")] || "", pos: l[L.indexOf("pos")] === "F" ? "F" : "O", services: Number(l[L.indexOf("services")]), avgAllowed: l[L.indexOf("avgAllowed")] }));
+    const lines = rec.lines.map((l) => ({ hcpcs: l[iHcpcs], mod: l[iMod] || "", pos: l[iPos] === "F" ? "F" : "O", services: Number(l[iServices]), avgAllowed: l[iAvg] }));
     const g = impactGroup(rec.providerType);
     const res = statement(lines, { table, loc, anesWeights: locs.anesWeights, cfKind: "nonqp", m25: m25[g] || null, share: feeShare(rec.providerType) });
     if (!res.rows.length || res.totals.base <= 0) { nEmpty++; continue; }
@@ -39,7 +40,7 @@ for (let s = 0; s < 1000; s++) {
       floorCost += kept.totals.full - res.totals.full;
     }
     pcts.push(res.pct);
-    for (const row of res.rows) if (row.line.hcpcs === "G2211") { g2211.y26 += row.y26; g2211.y27 += row.y27; g2211.n++; }
+    for (const row of res.rows) if (row.how === "b1" || row.how === "b2" || row.line.hcpcs === "G2211") { g2211.y26 += row.y26; g2211.y27 += row.y27; g2211.n++; }
     const a = (groups[g] ||= { n: 0, base: 0, cf: 0, rvu: 0, full: 0, cut: 0 });
     a.n++; if (res.pct < -0.0005) a.cut++;
     for (const k of Object.keys(all)) { a[k] += res.totals[k]; all[k] += res.totals[k]; }

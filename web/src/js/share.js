@@ -62,7 +62,7 @@ export async function shareImage(st, res, { specName, locName, url }) {
     const p = res.totals.base ? v / res.totals.base : 0;
     g.fillStyle = ink2;
     g.fillText(name, 94, y);
-    g.fillStyle = p < 0 ? cut : raise;
+    g.fillStyle = p < -0.0005 ? cut : p > 0.0005 ? raise : ink2;
     g.font = "700 22px 'Courier Prime'";
     g.fillText(pctFmt(p), 410, y);
     g.font = "600 22px Archivo";
