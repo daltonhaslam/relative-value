@@ -59,7 +59,7 @@ export const SPEC_NAMES = {
 };
 
 export const HOW_NOTES = {
-  anesthesia: "Anesthesia: the line's average allowed amount, moved by your locality's anesthesia conversion factor",
+  anesthesia: "Anesthesia: the 2026 column is the line's average allowed amount in CMS's latest file; 2027 moves it by the locality's anesthesia conversion factor change",
   b1: "G2211 ends in 2027. 2027 column: modifier B1 on the same visits, 16% of their work RVUs",
   b2: "G2211 ends in 2027. 2027 column: modifier B2 on the same visits, 32% of their work RVUs (ACO, LEAD)",
   crosswalk: "Code replaced for 2027. Priced through CMS's crosswalk to the new codes",

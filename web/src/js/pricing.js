@@ -1,7 +1,8 @@
 // Medicare PFS pricing, CY2026 vs CY2027. Pure functions: used by the page, the build and the tests.
 //
 // payment = (work RVU x work GPCI + PE RVU x PE GPCI + MP RVU x MP GPCI) x conversion factor
-// Office (non-facility) lines use non-facility PE; a code with non-facility PE "NA" is paid at facility PE.
+// Office (non-facility) lines use non-facility PE; a code with non-facility PE "NA" is paid at facility PE,
+// and a code with facility PE "NA" is paid at non-facility PE.
 
 const IDX = { 2026: [0, 1, 2, 3], 2027: [4, 5, 6, 7] };
 const ANES = /^0[01]\d{3}$/;
@@ -18,7 +19,7 @@ function rvus(table, key, year, pos) {
   if (!r) return null;
   const [iw, inf, ifac, imp] = IDX[year];
   if (r[iw] == null && r[ifac] == null) return null;
-  const pe = pos === "F" ? r[ifac] : (r[inf] ?? r[ifac]);
+  const pe = pos === "F" ? (r[ifac] ?? r[inf]) : (r[inf] ?? r[ifac]);
   return { w: r[iw] ?? 0, pe: pe ?? 0, mp: r[imp] ?? 0 };
 }
 
@@ -111,10 +112,17 @@ export function presetLines(preset) {
   });
 }
 
-/** Medicare pays some clinicians a statutory share of the fee schedule amount. */
+/** Medicare pays some clinicians a statutory share of the fee schedule amount. Mirrors pipeline/npi/modguess.py PAYMENT_PCT. */
 export function feeShare(providerType) {
-  if (/^(Nurse Practitioner|Physician Assistant|Certified Clinical Nurse Specialist)$/.test(providerType || "")) return 0.85;
+  if (/^(Nurse Practitioner|Physician Assistant|Certified Clinical Nurse Specialist|Registered Dietitian or Nutrition Professional)$/.test(providerType || "")) return 0.85;
   if (/^(Licensed Clinical Social Worker|Licensed Professional Counselor|Marriage and Family Therapist)$/.test(providerType || "")) return 0.75;
+  return 1;
+}
+
+/** The same statutory share by CMS impact-table group, for typical-practice statements (no clinician type). Mirrors modguess.PAYMENT_PCT. */
+export function groupShare(impactGroup) {
+  if (impactGroup === "NURSE PRACTITIONER" || impactGroup === "PHYSICIAN ASSISTANT") return 0.85;
+  if (impactGroup === "CLINICAL SOCIAL WORKER") return 0.75;
   return 1;
 }
 

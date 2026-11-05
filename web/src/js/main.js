@@ -1,4 +1,4 @@
-import { feeShare, presetLines, statement } from "./pricing.js";
+import { feeShare, groupShare, presetLines, statement } from "./pricing.js";
 import { renderStatement } from "./statement.js";
 import { distChart, esc, pctFmt } from "./charts.js";
 import { npiRecord, pricingTables, zipToLocality } from "./data.js";
@@ -17,6 +17,7 @@ let T = null; // { table, m25, rbcs }
 const st = {
   who: null, title: "", specKey: boot.defaultSpec, zip: "", locKey: null, qp: false, aco: false,
   lines: [], volumes: "", expanded: false, source: "preset",
+  edited: false, recZip: "", recSpec: null, // NPI statements: edited lines, and the record's own ZIP and group
 };
 
 /* ---------------- tooltips ---------------- */
@@ -41,7 +42,7 @@ function toast(msg) {
 }
 
 /* ---------------- statement ---------------- */
-const specByKey = Object.fromEntries(boot.specs.map((s) => [s.key, s]));
+const specByKey = Object.assign(Object.create(null), Object.fromEntries(boot.specs.map((s) => [s.key, s])));
 
 function locFor(key) {
   return (key && boot.localities[key]) || { g26: [1, 1, 1], g27: [1, 1, 1], name: "National average" };
@@ -54,7 +55,7 @@ function compute() {
     table: T.table, loc, anesWeights: boot.anesWeights, cfKind,
     m25: T.m25.factors[st.specKey] || null,
     aco: st.aco,
-    share: st.who ? feeShare(st.who.type) : 1,
+    share: st.who ? feeShare(st.who.type) : groupShare(st.specKey),
   };
   return { res: statement(st.lines, ctx), cfKind, loc };
 }
@@ -93,18 +94,28 @@ function loadPreset(key, { scroll = false } = {}) {
   st.lines = presetLines(s.preset);
   st.expanded = false;
   st.source = "preset";
+  st.edited = false;
   $("#st-spec").value = key;
   draw({ press: true });
   if (scroll) scrollToStatement();
 }
 
+/** Load a clinician's statement. Resolves after drawing (or after the fallback, if the NPI can't be loaded). */
 async function loadNpi(npi, { scroll = true } = {}) {
   const res = $("#q-results");
+  // Nothing on the statement yet (e.g. a shared ?npi= link): show a typical practice instead of an empty sheet.
+  const fallback = async () => {
+    if (st.lines.length) return;
+    await ready;
+    loadPreset(boot.defaultSpec);
+    toast(`No clinician with NPI ${npi} in CMS's ${boot.dataYear} file; showing a typical practice instead.`);
+  };
   try {
     const rec = await npiRecord(npi);
     if (!rec) {
       res.hidden = false;
       res.innerHTML = `<li class="msg">No clinician with NPI ${esc(npi)} in CMS's ${boot.dataYear} file. The file covers clinicians who billed Medicare Part B fee-for-service that year.</li>`;
+      await fallback();
       return;
     }
     await ready;
@@ -112,6 +123,9 @@ async function loadNpi(npi, { scroll = true } = {}) {
     st.specKey = impactGroup(rec.providerType);
     st.locKey = rec.locality || null;
     st.zip = rec.zip5 || "";
+    st.recZip = st.zip;
+    st.recSpec = st.specKey;
+    st.edited = false;
     $("#st-zip").value = st.zip;
     st.lines = rec.lines;
     st.volumes = `${rec.providerType}, ${rec.city}, ${rec.state}. CMS public file, ${rec.dataYear} services (the latest year published)`;
@@ -124,18 +138,31 @@ async function loadNpi(npi, { scroll = true } = {}) {
   } catch (e) {
     res.hidden = false;
     res.innerHTML = `<li class="msg">${esc(e.message)}</li>`;
+    await fallback();
   }
 }
 
-/* URL state: ?npi=… or ?s=<specialty>&z=<zip>&qp=1&l=code:pos:n,… */
+/* URL state: ?npi=…[&s=…&z=…&l=…] (an NPI statement's changes from its record) or ?s=<specialty>&z=<zip>&qp=1&l=code:pos:n,… */
+const linesParam = () => st.lines.map((l) => `${l.mod ? `${l.hcpcs}-${l.mod}` : l.hcpcs}:${l.pos}:${Math.round(l.services * 10) / 10}`).join(",");
+function parseLines(l) {
+  return l.split(",").slice(0, 200).map((t) => {
+    const [code, pos, n] = t.split(":");
+    const [hcpcs, mod = ""] = (code || "").toUpperCase().split("-");
+    return { hcpcs, mod, pos: pos === "F" ? "F" : "O", services: Math.max(0, Number(n) || 0) };
+  }).filter((x) => /^[0-9A-Z]{5}$/.test(x.hcpcs) && /^(|26|TC)$/.test(x.mod));
+}
 function writeUrl() {
   const p = new URLSearchParams();
-  if (st.source === "npi" && st.who) p.set("npi", st.who.npi);
-  else {
+  if (st.source === "npi" && st.who) {
+    p.set("npi", st.who.npi);
+    if (st.specKey !== st.recSpec) p.set("s", st.specKey);
+    if (st.zip !== st.recZip) p.set("z", st.zip);
+    if (st.edited) p.set("l", linesParam());
+  } else {
     p.set("s", st.specKey);
-    if (st.source === "custom") p.set("l", st.lines.map((l) => `${l.mod ? `${l.hcpcs}-${l.mod}` : l.hcpcs}:${l.pos}:${Math.round(l.services * 10) / 10}`).join(","));
+    if (st.source === "custom") p.set("l", linesParam());
+    if (st.zip) p.set("z", st.zip);
   }
-  if (st.zip && st.source !== "npi") p.set("z", st.zip);
   if (st.qp) p.set("qp", "1");
   if (st.aco) p.set("aco", "1");
   history.replaceState(null, "", `?${p}${location.hash}`);
@@ -148,18 +175,22 @@ async function readUrl() {
   $("#st-qp").checked = st.qp;
   $("#st-aco").checked = st.aco;
   const npi = p.get("npi");
-  if (npi && /^\d{10}$/.test(npi)) return loadNpi(npi, { scroll: false });
   const s = p.get("s");
-  loadPreset(specByKey[s] ? s : boot.defaultSpec);
   const z = p.get("z");
-  if (z && /^\d{5}$/.test(z)) { $("#st-zip").value = z; await setZip(z); }
   const l = p.get("l");
+  if (npi && /^\d{10}$/.test(npi)) {
+    await loadNpi(npi, { scroll: false });
+    if (st.source !== "npi") return; // not found: loadNpi fell back to a typical practice
+    if (s && specByKey[s]) { st.specKey = s; $("#st-spec").value = s; }
+    if (z != null && (z === "" || /^\d{5}$/.test(z)) && z !== st.zip) { $("#st-zip").value = z; await setZip(z); }
+    if (l != null) { st.lines = parseLines(l); st.edited = true; st.volumes = st.volumes.replace(/( \(edited\))?$/, " (edited)"); }
+    draw();
+    return;
+  }
+  loadPreset(specByKey[s] ? s : boot.defaultSpec);
+  if (z && /^\d{5}$/.test(z)) { $("#st-zip").value = z; await setZip(z); }
   if (l) {
-    st.lines = l.split(",").slice(0, 200).map((t) => {
-      const [code, pos, n] = t.split(":");
-      const [hcpcs, mod = ""] = (code || "").toUpperCase().split("-");
-      return { hcpcs, mod, pos: pos === "F" ? "F" : "O", services: Math.max(0, Number(n) || 0) };
-    }).filter((x) => /^[0-9A-Z]{5}$/.test(x.hcpcs) && /^(|26|TC)$/.test(x.mod));
+    st.lines = parseLines(l);
     st.source = "custom";
     st.title = "Custom practice";
     st.volumes = "Entered on this page";
@@ -227,7 +258,7 @@ function wireStatement() {
 
 function touch() {
   if (st.source === "preset") { st.source = "custom"; st.title = `${st.title}, edited`; }
-  if (st.source === "npi") st.volumes = st.volumes.replace(/( \(edited\))?$/, " (edited)");
+  if (st.source === "npi") { st.edited = true; st.volumes = st.volumes.replace(/( \(edited\))?$/, " (edited)"); }
   draw();
 }
 
@@ -241,7 +272,11 @@ function suggestCodes(q) {
       const base = k.split("-")[0];
       const lbl = T.table.labels[base] || (T.rbcs[base] ? T.rbcs[base][1] || T.rbcs[base][0] : "");
       return { k, lbl, hay: `${k.toLowerCase()} ${lbl.toLowerCase()}`, own: !!T.table.labels[base] };
-    }).filter((c) => T.table.codes[c.k][4] != null || T.table.codes[c.k][0] != null);
+    }).filter((c) => {
+      // Only codes the statement can price in both years (or a deleted code CMS crosswalks to 2027 codes).
+      const r = T.table.codes[c.k];
+      return ((r[0] != null || r[2] != null) && (r[4] != null || r[6] != null)) || !!T.table.crosswalk[c.k];
+    });
   }
   const words = q.split(/\s+/);
   const hits = codeIndex
@@ -257,7 +292,8 @@ function suggestCodes(q) {
 function addCode(k) {
   const [hcpcs, mod = ""] = k.split("-");
   const r = T.table.codes[k];
-  const officeOk = r && (r[5] != null || r[1] != null);
+  // Default to office only where 2027 has a non-facility rate (or, for a code deleted in 2027, 2026 had one).
+  const officeOk = r && (r[5] != null || (r[4] == null && r[6] == null && r[1] != null));
   st.lines.unshift({ hcpcs, mod, pos: officeOk ? "O" : "F", services: 100 });
   touch();
   $("#add-code")?.focus();

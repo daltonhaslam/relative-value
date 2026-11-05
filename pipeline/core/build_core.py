@@ -31,9 +31,12 @@ def build_codes():
     codes = {}
     for r in m.itertuples(index=False):
         key = r.hcpcs + (f"-{r.mod}" if r.mod else "")
-        nf_na = pd.notna(r.work27) and pd.isna(r.pe_nf27)
+        # Facility NA in 2027 (Addendum B blank) while 2026 carries a value: null 2026 facility PE too, so a
+        # facility line on such a code is priced at non-facility PE in both years rather than collapsing in 2027.
+        # (Non-facility NA needs no mirror: the 2026 file already sets NF PE = F PE where 2026 is NA.)
+        f_na = pd.notna(r.work27) and pd.isna(r.pe_f27)
         codes[key] = [
-            r2(r.work26), None if nf_na else r2(r.pe_nf26), r2(r.pe_f26), r2(r.mp26),
+            r2(r.work26), r2(r.pe_nf26), None if f_na else r2(r.pe_f26), r2(r.mp26),
             r2(r.work27), r2(r.pe_nf27), r2(r.pe_f27), r2(r.mp27),
             (r.glob27 if isinstance(r.glob27, str) and r.glob27 else r.glob26) or "",
         ]
@@ -41,7 +44,13 @@ def build_codes():
     xw_f = P27 / "cy-2027-pfs-final-rule-cy-2026-analytic-crosswalk-cy-2027" / "CMS-1848-F_Analytic Crosswalk from CY 2026 to CY 2027_508.txt"
     xw = pd.read_csv(xw_f, sep="\t", dtype=str).fillna("")
     xw.columns = ["src", "smod", "dst", "dmod", "ratio"]
-    xw = xw[xw["src"] != xw["dst"]]
+    for c in ["src", "smod", "dst", "dmod"]:
+        xw[c] = xw[c].str.strip()
+    # Drop a self row only when the source is still payable in 2027; a self row for a deleted source prices null and is skipped.
+    payable27 = {(h, md) for h, md, w, pf in zip(b["hcpcs"], b["mod"], b["work"], b["pe_f"]) if pd.notna(w) or pd.notna(pf)}
+    self_row = (xw["src"] == xw["dst"]) & (xw["smod"] == xw["dmod"])
+    still27 = np.array([(s, m) in payable27 for s, m in zip(xw["src"], xw["smod"])], dtype=bool)
+    xw = xw[~(self_row.to_numpy() & still27)]
     cross = {}
     for r in xw.itertuples(index=False):
         k = r.src + (f"-{r.smod}" if r.smod else "")
@@ -49,7 +58,7 @@ def build_codes():
         cross.setdefault(k, []).append([d, float(r.ratio)])
     return {
         "fields": ["w26", "peNF26", "peF26", "mp26", "w27", "peNF27", "peF27", "mp27", "global"],
-        "note": "null peNF = non-facility NA (paid at facility PE). null year = not payable that year.",
+        "note": "null peNF = non-facility NA (paid at facility PE); null peF = facility NA (paid at non-facility PE). null year = not payable that year.",
         "cf": CF, "anesCf": ANES_CF,
         "b1": {"codes": B1_BASE_CODES, "b1": B1_WORK_UPLIFT, "b2": B2_WORK_UPLIFT},
         "codes": codes, "crosswalk": cross, "labels": labels,

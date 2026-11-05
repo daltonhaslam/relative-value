@@ -57,3 +57,20 @@ test("G2211 becomes modifier B1 on the same visits, and lines off the fee schedu
   assert.ok(Math.abs(b2.rows[1].y27 - 2 * g.y27) < 1e-6, "B2 is twice B1");
   assert.equal(s.off.length, 1);
 });
+
+test("facility NA is paid at non-facility PE in both years; office keeps 2026's own NF value", async () => {
+  const { groupShare, feeShare } = await import("../src/js/pricing.js");
+  const g = table.codes.G0439; // facility PE NA in 2027
+  assert.equal(g[6], null);
+  assert.equal(g[2], null, "2026 facility PE nulled to match");
+  const f26 = price(table, "G0439", { rvuYear: 2026, pos: "F" });
+  const o26 = price(table, "G0439", { rvuYear: 2026, pos: "O" });
+  const f27 = price(table, "G0439", { rvuYear: 2027, pos: "F" });
+  const o27 = price(table, "G0439", { rvuYear: 2027, pos: "O" });
+  assert.ok(Math.abs(f26 - o26) < 1e-9 && Math.abs(f27 - o27) < 1e-9);
+  assert.ok(table.codes["59160"][1] != null, "59160 was office-payable in 2026");
+  assert.equal(groupShare("NURSE PRACTITIONER"), 0.85);
+  assert.equal(groupShare("CLINICAL SOCIAL WORKER"), 0.75);
+  assert.equal(groupShare("FAMILY PRACTICE"), 1);
+  assert.equal(feeShare("Registered Dietitian or Nutrition Professional"), 0.85);
+});

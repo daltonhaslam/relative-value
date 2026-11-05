@@ -105,18 +105,48 @@ const h0 = series[0], hN = series[series.length - 1];
 
 /* ---------- drivers (CMS-1848-F, public-inspection page cites) ---------- */
 const p90837 = [2026, 2027].map((rvuYear) => price(codes, "90837", { rvuYear, pos: "O" }));
+// Joint replacement: the copy names 27130 and 27447 with one pair of work RVUs.
+const tka = codes.codes["27447"], tha = codes.codes["27130"];
+if (tka[0] !== tha[0] || tka[4] !== tha[4]) throw new Error(`Drivers copy gives 27130 and 27447 one pair of work RVUs; the data has 27130 ${tha[0]} -> ${tha[4]}, 27447 ${tka[0]} -> ${tka[4]}. Update the joint-replacement driver.`);
+const pTka = [2026, 2027].map((rvuYear) => price(codes, "27447", { rvuYear, pos: "F" }));
+const tkaPct = pctFmt(pTka[1] / pTka[0] - 1, 0);
+// B1 on a level-4 established visit vs the G2211 it replaces (2026 non-facility total RVUs).
+if (codes.b1.b1 !== 0.16 || codes.b1.b2 !== 0.32) throw new Error(`Copy says B1 is 16% and B2 32% of work RVUs; codes.json has ${codes.b1.b1}, ${codes.b1.b2}. Update the G2211 driver, HOW_NOTES and methods.`);
+const b1Rvu = (codes.b1.b1 * codes.codes["99214"][4]).toFixed(2);
+const g2211 = codes.codes.G2211;
+const g2211Rvu = (g2211[0] + g2211[1] + g2211[3]).toFixed(2);
+// The end of the work GPCI floor: the lowest 2027 work GPCI and the localities at it.
+const minWork27 = Math.min(...Object.values(locs.localities).map((l) => l.g27[0]));
+const lowest = Object.values(locs.localities).filter((l) => l.g27[0] === minWork27).map((l) => l.name);
+const andList = (a) => (a.length < 3 ? a.join(" and ") : `${a.slice(0, -1).join(", ")}, and ${a[a.length - 1]}`);
+const lowestTxt = `${andList(lowest)} ${lowest.length === 1 ? "falls" : "fall"} furthest, to ${minWork27.toFixed(3)}.`;
 const drivers = [
   [pctFmt(CFR, 2), "The conversion factor", `${usd(codes.cf[2026].nonqp, 4)} becomes ${usd(codes.cf[2027].nonqp, 4)}. Most of that is the end of 2026's one-year 2.50% increase; the statute's +0.25% update and a −0.12% budget-neutrality factor follow. Qualifying APM participants get ${usd(codes.cf[2027].qp, 4)} (${pctFmt(CFR_QP, 2)}). CMS's specialty table leaves this out: the conversion factor updates "are not captured in the specialty impacts" (PI pp. 1971–1977).`],
   ["−20%", "Same-day visits with modifier 25", "When an office visit billed with modifier 25 falls on the same day as a 0-day-global procedure by the same physician, or a same-specialty colleague in the group, every service except the highest-paid one is paid 20% less. CMS had proposed 50% across 0-, 10- and 90-day globals. It hits dermatology, otolaryngology and orthopedics hardest (PI pp. 402–403, 1974)."],
-  ["G2211 → B1", "The complexity add-on becomes a modifier", `G2211 ends. Office and home visits instead carry modifier B1, worth 16% of the visit's work RVUs, or B2 (32%) for Shared Savings Program ACO and LEAD participants. On a level-4 established visit B1 adds 0.31 RVU; G2211 added 0.52 (PI pp. 329, 341; CMS B1/B2 file). CMS's budget-neutrality math expects B1 and B2 to pay about $${(b12.b12Dollars2027 / 1e9).toFixed(1)} billion in 2027. In CMS's ${effects.dataYear} clinician file G2211 paid $${Math.round(effects.g2211.dollars2026 / 1e6)} million at 2026 rates; B1 on those same visits would pay $${Math.round(effects.g2211.b1SameVisits2027 / 1e6)} million.`],
+  ["G2211 → B1", "The complexity add-on becomes a modifier", `G2211 ends. Office and home visits instead carry modifier B1, worth 16% of the visit's work RVUs, or B2 (32%) for Shared Savings Program ACO and LEAD participants. On a level-4 established visit B1 adds ${b1Rvu} RVU; G2211 added ${g2211Rvu} (PI pp. 329, 341; CMS B1/B2 file). CMS's budget-neutrality math expects B1 and B2 to pay about $${(b12.b12Dollars2027 / 1e9).toFixed(1)} billion in 2027. In CMS's ${effects.dataYear} clinician file G2211 paid $${Math.round(effects.g2211.dollars2026 / 1e6)} million at 2026 rates; B1 on those same visits would pay $${Math.round(effects.g2211.b1SameVisits2027 / 1e6)} million.`],
   ["½", "The indirect practice cost index is halved", "CMS is removing the index it uses to spread indirect practice costs across specialties: half in 2027, all of it in 2028. A new cap limits any code's practice-expense change to 5% a year (PI p. 1974)."],
-  ["−18%", "Total hip and knee replacement", "Work RVUs for 27130 and 27447 fall from 19.11 to 16.70. With the conversion factor, the national facility payment for a total knee drops from $1,159.35 to $953.08 (CMS selected-procedures file)."],
-  ["+9.8%", "Behavioral health", `The last of four annual behavioral-health work increases and the practice-expense changes lift psychotherapy: 90837 in an office goes from $${p90837[0].toFixed(2)} to $${p90837[1].toFixed(2)} nationally. Clinical social workers (+11%) and psychologists (+9%) lead CMS's table (PI pp. 1973–1974).`],
-  ["1.0 → 0.948", "The work GPCI floor ends", "Since 2004 no locality's work GPCI could be below 1.0. The statute ends that floor for services on or after January 1, 2027 (SSA §1848(e)(1)(E), as amended by Pub. L. 119-75 §6208). It isn't offset anywhere in the 2027 conversion factor. Arkansas and Mississippi fall furthest, to 0.948."],
+  [tkaPct, "Total hip and knee replacement", `Work RVUs for 27130 and 27447 fall from ${tka[0].toFixed(2)} to ${tka[4].toFixed(2)}. With the conversion factor, the national facility payment for a total knee drops from ${usd(pTka[0])} to ${usd(pTka[1])} (CMS selected-procedures file).`],
+  [pctFmt(p90837[1] / p90837[0] - 1, 1), "Behavioral health", `The last of four annual behavioral-health work increases and the practice-expense changes lift psychotherapy: 90837 in an office goes from $${p90837[0].toFixed(2)} to $${p90837[1].toFixed(2)} nationally. Clinical social workers (${pctFmt(pick("CLINICAL SOCIAL WORKER").cms, 0)}) and psychologists (${pctFmt(pick("CLINICAL PSYCHOLOGIST").cms, 0)}) lead CMS's table (PI pp. 1973–1974).`],
+  [`1.0 → ${minWork27.toFixed(3)}`, "The work GPCI floor ends", `Since 2004 no locality's work GPCI could be below 1.0. The statute ends that floor for services on or after January 1, 2027 (SSA §1848(e)(1)(E), as amended by Pub. L. 119-75 §6208). It isn't offset anywhere in the 2027 conversion factor. ${lowestTxt}`],
   ["Not in 2027", "The efficiency adjustment", "The −2.5% cut to work RVUs for non-time-based services applied in 2026 is not repeated. CMS plans it every three years; the next is CY2029 (PI pp. 114–115)."],
 ];
 
 /* ---------- copy ---------- */
+// methods.html is static text with ${name} placeholders for figures that come from the data.
+function fillMethods(src) {
+  const m = {
+    effects_year: String(effects.dataYear),
+    cf26: usd(codes.cf[2026].nonqp, 4), cf26qp: usd(codes.cf[2026].qp, 4),
+    cf27: usd(codes.cf[2027].nonqp, 4), cf27qp: usd(codes.cf[2027].qp, 4),
+    anes26: usd(codes.anesCf[2026].nonqp, 4), anes27: usd(codes.anesCf[2027].nonqp, 4),
+    b12_bil: `$${(b12.b12Dollars2027 / 1e9).toFixed(1)}`,
+    clinicians_mil: (effects.clinicians / 1e6).toFixed(2),
+  };
+  return src.replace(/\$\{(\w+)\}/g, (_, k) => {
+    if (!(k in m)) throw new Error(`methods.html placeholder \${${k}} has no value in build.mjs fillMethods`);
+    return m[k];
+  });
+}
 const below = Object.values(locs.localities).filter((l) => l.g27[0] < 1).length;
 const nLoc = Object.keys(locs.localities).length;
 const pct0 = (v) => `${Math.round(v * 100)}%`;
@@ -131,7 +161,7 @@ const copy = {
   SPEC_FACTS: `Priced clinician by clinician on the services each billed in ${effects.dataYear}, Medicare would pay $${(-effects.overall.change / 1e9).toFixed(1)} billion (${pctFmt(effects.overall.pct)}) less in 2027 for the same work; the median clinician sees ${pctFmt(effects.pctQuantiles.median)}. That is deeper than CMS's table because CMS assumes modifiers B1 and B2 will be billed far more often than G2211 was. The end of the work floor alone accounts for about $${Math.round(effects.floorCost / 1e6)} million, in the ${below} localities that lose it.`,
   N_CUT: String(nCut),
   N_RAISE: String(nRaise),
-  SPEC_BODY: `Clinical social workers and psychologists gain the most, from practice-expense changes and the last step of the behavioral-health work increase. Orthopedic surgery and otolaryngology lose the most, from the new same-day modifier-25 reduction, the halving of the indirect practice cost index and, for joint replacement, an 18% cut per case. Click a specialty to price a typical practice.`,
+  SPEC_BODY: `Clinical social workers and psychologists gain the most, from practice-expense changes and the last step of the behavioral-health work increase. Orthopedic surgery and otolaryngology lose the most, from the new same-day modifier-25 reduction, the halving of the indirect practice cost index and, for joint replacement, ${/^(8|11|18)/.test(tkaPct.slice(1)) ? "an" : "a"} ${tkaPct.slice(1)} cut per case. Click a specialty to price a typical practice.`,
   SPEC_NOTE: `Each figure is a change in payment per service, holding the specialty's 2025 mix of services fixed. More or fewer services will move actual revenue. CMS rounds its table to whole percents, so the combined figures can be off by about half a point. Anesthesia services use the anesthesia conversion factor (${pctFmt(codes.anesCf[2027].nonqp / codes.anesCf[2026].nonqp - 1)}).`,
   SPEC_CHART: specialtyChart(rows) + specialtyTable(rows),
   SPEC_CAPTION: `Hollow mark: CMS's estimated impact of relative-value changes on 2027 allowed charges, by specialty (CY2027 PFS final rule specialty impact file, updated November 5, 2026). Filled mark: that change combined with the conversion factor (Tables D-B1, D-B2) and each specialty's average change in geographic indices, from CMS's ${effects.dataYear} clinician-level file priced at 2026 and 2027 GPCIs. Suppliers and facilities (labs, testing facilities, portable x-ray) are left off.`,
@@ -154,7 +184,7 @@ const copy = {
   HISTORY_NOTE: "Before 1998 Medicare had separate conversion factors for surgery, primary care and other services; the line follows the primary-care factor for 1993–1997. Years with a mid-year change use the day-weighted average. Values for 1992–1994 are from the House Ways and Means Green Book; later years from each year's final rule or CMS rate file. The 2027 MEI (2.6%) is CMS's estimate.",
   HISTORY_CHART: historyChart(series),
   HISTORY_CAPTION: "Conversion factor (non-qualifying APM from 2026) and the 1992 factor grown each year by the MEI used in that year's rule. Relative values are rescaled over time, so the conversion factor alone is not the price of any one service.",
-  METHODS: read("web/src/methods.html").replace("${effects_year}", String(effects.dataYear)),
+  METHODS: fillMethods(read("web/src/methods.html")),
   FEEDBACK: FEEDBACK,
   DATA_DATE,
   SITE_URL,

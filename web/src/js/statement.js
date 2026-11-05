@@ -107,7 +107,7 @@ export function renderStatement(state, res, { table, rbcs, cf }) {
   </div>` : "";
 
   const off = res.off.length
-    ? `<p class="offsched">${res.off.length} ${res.off.length === 1 ? "line is" : "lines are"} paid outside the physician fee schedule (drugs, lab tests, supplies) and ${res.off.length === 1 ? "is" : "are"} left out.</p>`
+    ? `<p class="offsched">${res.off.length} ${res.off.length === 1 ? "line is" : "lines are"} left out: services paid outside the physician fee schedule (drugs, lab tests, supplies), and codes without a fee-schedule rate in both 2026 and 2027.</p>`
     : "";
 
   return `<div class="sheet">${head}${table_}${add}${foot.replace("<!--stamp-->", stamp)}${off}</div>`;
