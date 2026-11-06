@@ -9,7 +9,7 @@ import { SPEC_NAMES } from "./src/js/names.js";
 const R = (p) => new URL(`../${p}`, import.meta.url);
 const read = (p) => readFileSync(R(p), "utf8");
 const json = (p) => JSON.parse(read(p));
-const SITE_URL = process.env.SITE_URL || "https://relative-value.vercel.app";
+const SITE_URL = process.env.SITE_URL || "https://relative-value-rho.vercel.app";
 const FEEDBACK = "https://docs.google.com/forms/d/e/1FAIpQLSekdB41siZs44_4gLNBGD2OqalK2TGNk7o8Q0bHl20ggYBy_Q/viewform"
   + `?entry.2047320042=${encodeURIComponent("Relative Value")}&entry.1326474028=${encodeURIComponent(SITE_URL + "/")}`;
 const DATA_DATE = "November 5, 2026 (CY2027 PFS final rule, public inspection November 4, 2026)";
