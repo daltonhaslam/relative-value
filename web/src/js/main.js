@@ -7,6 +7,9 @@ import { searchNames } from "./search.js";
 import { initMap } from "./map.js";
 import { shareImage } from "./share.js";
 
+window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+window.va("beforeSend", (e) => ({ ...e, url: e.url.split(/[?#]/)[0] }));
+
 const boot = JSON.parse(document.getElementById("boot").textContent);
 const $ = (s, r = document) => r.querySelector(s);
 const tip = $("#tip");

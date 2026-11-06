@@ -15,7 +15,8 @@ const b = await launch();
 const errors = [];
 const p = await b.newPage({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
 p.on("pageerror", (e) => errors.push(e.message));
-p.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+// /_vercel/insights/script.js exists only on Vercel; a local static server 404s it.
+p.on("console", (m) => { if (m.type() === "error" && !/status of 404/.test(m.text())) errors.push(m.text()); });
 await p.goto(url, { waitUntil: "networkidle" });
 
 // 1. typical practice loads by default

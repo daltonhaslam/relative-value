@@ -23,7 +23,7 @@ python3 -m http.server 8765 -d ../docs &         # then: npm run e2e
 
 The clinician lookup and map data (`docs/data/npi`, `docs/data/names`, `docs/data/map`, `docs/data/zip-locality.json`, `docs/data/rbcs.json`) are built by `pipeline/npi` and `pipeline/geo`; see their READMEs. Raw CMS downloads live in `data/raw/` (not committed); `pipeline/sources.json` pins their URLs and SHA-256 hashes.
 
-The page is one static HTML file with inlined CSS and JS, self-hosted fonts (SIL Open Font License) and lazily loaded data files from the same origin. No analytics, no cookies, no third-party requests.
+The page is one static HTML file with inlined CSS and JS, self-hosted fonts (SIL Open Font License) and lazily loaded data files from the same origin. Searches and entries are not recorded or sent anywhere. Page views are counted anonymously with Vercel Web Analytics (no cookies, no personal identifiers, only the page path). No third-party requests.
 
 ## Checks
 

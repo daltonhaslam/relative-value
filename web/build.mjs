@@ -154,7 +154,7 @@ const mil = (v) => `${(v / 1e6).toFixed(2)} million`;
 const copy = {
   DESCRIPTION: `The 2027 Medicare physician fee schedule cuts the conversion factor ${CF_CUT} and ends the work GPCI floor. See every specialty's change and price any clinician's own services and locality.`,
   HERO_DEK: `In 2027 the conversion factor falls <strong>${CF_CUT}</strong> and the floor under the work GPCI ends. Priced on what each clinician billed in ${effects.dataYear}, <strong>${pct0(effects.cut / effects.clinicians)}</strong> of the ${mil(effects.clinicians)} clinicians in CMS's public file are paid less for the same work. Look anyone up.`,
-  LOOKUP_NOTE: `Names, NPIs and service counts are from CMS's public file of Medicare Part B services by clinician (${effects.dataYear}, the latest year published). Searching only loads data files from this site. Nothing is stored or tracked.`,
+  LOOKUP_NOTE: `Names, NPIs and service counts are from CMS's public file of Medicare Part B services by clinician (${effects.dataYear}, the latest year published). Your searches and entries are not recorded or sent anywhere. Page views are counted anonymously with Vercel Web Analytics: no cookies, no personal identifiers, only the page path.`,
   HERO_CHIPS: ["FAMILY PRACTICE", "INTERNAL MEDICINE", "CARDIOLOGY", "ORTHOPEDIC SURGERY", "DERMATOLOGY", "NURSE PRACTITIONER", "CLINICAL SOCIAL WORKER", "OPHTHALMOLOGY", "EMERGENCY MEDICINE", "RADIOLOGY"]
     .map((k) => `<button type="button" class="chip" data-spec="${esc(k)}">${esc(SPEC_NAMES[k])}</button>`).join(""),
   SPEC_LEDE: "CMS's impact table shows how each specialty's relative values move. It leaves out the conversion factor, which falls for everyone, and the end of the work GPCI floor.",
@@ -233,7 +233,7 @@ const vercel = {
       { key: "X-Frame-Options", value: "DENY" },
       { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
       { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
-      { key: "Content-Security-Policy", value: `default-src 'self'; script-src ${scriptHash}; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'` },
+      { key: "Content-Security-Policy", value: `default-src 'self'; script-src 'self' ${scriptHash}; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'` },
     ] },
     { source: "/fonts/(.*)", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
     { source: "/data/(.*)", headers: [{ key: "Cache-Control", value: "public, max-age=86400" }] },
