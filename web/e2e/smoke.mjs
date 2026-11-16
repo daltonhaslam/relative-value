@@ -72,6 +72,7 @@ await p.fill("#add-code", "knee replacement ");
 await p.waitForSelector("#add-results button[data-code='27447']");
 await p.click("#add-results button[data-code='27447']");
 await p.waitForSelector("#st-root tr[data-i] td.code:text('27447')");
+assert.ok(await p.evaluate(() => document.activeElement.id === "add-code"), "focus back on the add-a-code box");
 
 // 5. ZIP -> locality (preset path)
 await p.click("#hero-chips [data-spec='DERMATOLOGY']");
@@ -101,6 +102,12 @@ await dl.saveAs(`${shots}/share.png`);
 await p.goto(`${url}?s=CARDIOLOGY&z=10001&qp=1`, { waitUntil: "networkidle" });
 await p.waitForFunction(() => /cardiology/i.test(document.querySelector("#st-root .sheet-head")?.textContent || ""));
 assert.ok(await p.isChecked("#st-qp"));
+
+// 9b. a shared link with a ZIP CMS doesn't map shows its notice but doesn't announce it on load
+await p.goto(`${url}?s=FAMILY%20PRACTICE&z=00000`, { waitUntil: "networkidle" });
+await p.waitForSelector(".toast");
+await p.waitForTimeout(500);
+assert.equal(await p.textContent("#live"), "");
 
 // 10. keyboard: edit a services box (Enter), then remove another line with its Remove button (Enter). The edit
 // survives and the line removed is the one chosen. Four lines, so "Show all" can't hide a row.

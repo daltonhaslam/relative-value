@@ -98,8 +98,8 @@ body {
 }
 /* Scale every font to the x-height of the web font it stands in for (measured: Archivo 0.526, Courier Prime 0.451).
    This applies all the time; the values are the web fonts' own, so they are unchanged once loaded and only a fallback
-   (while loading, or if a font fails) is resized to match. The font shorthand resets it: only elements that inherit
-   or set font-family alone are adjusted. */
+   (while loading, or if a font fails) is resized to match. The font shorthand resets it, so the end of this
+   file sets it again for every rule that uses the shorthand. */
 body, .sheet-foot, .addrow { font-size-adjust: 0.526; }
 .typed, .sheet, .sheet .lab, .effects .v, .spec-row .num, .tip td + td, .waterfall text.val { font-size-adjust: 0.451; }
 a { color: inherit; text-decoration-color: var(--form); text-underline-offset: 0.18em; }
@@ -463,3 +463,8 @@ footer.foot p { margin: 0 0 0.4rem; }
   .controls .box { min-width: 0; flex: 1 1 100%; }
   .mast nav { gap: 0.8rem; font-size: 0.9rem; }
 }
+
+/* The font shorthands above reset font-size-adjust: set it again for each of them (see body above). */
+.box input, .box select, .sheet-head .val, .lines th, .lines td.code, .lines td.v, .lines input.svc, .lines .pos,
+.demo .caption, .drivers li .fig { font-size-adjust: 0.451; }
+.btn, .chip, .total-big, .stamp, .stamp small, .tally b { font-size-adjust: 0.526; }

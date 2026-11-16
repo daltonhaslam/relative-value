@@ -51,14 +51,14 @@ function announce(msg, kind = "note") {
     note = total = "";
   }, 300);
 }
-function toast(msg) {
+function toast(msg, { quiet = false } = {}) {
   const t = document.createElement("div");
   t.className = "toast";
   t.setAttribute("aria-hidden", "true"); // read out through #live
   t.textContent = msg;
   document.body.append(t);
   setTimeout(() => t.remove(), 2600);
-  announce(msg);
+  if (!quiet) announce(msg);
 }
 
 /* ---------------- statement ---------------- */
@@ -95,13 +95,14 @@ function focusRestore(root, m) {
   const j = m.line ? st.lines.indexOf(m.line) : -1;
   const el = (j >= 0 && root.querySelector(`tr[data-i="${j}"] [data-act="${m.act}"]`)) // the same line, if it is still shown
     || (m.act === "more" && root.querySelectorAll("tr[data-i]")[m.rows]?.querySelector("[data-act]")) // first newly shown line
-    || same[Math.min(m.at, same.length - 1)] // the same place (after a removal, the next line's), or the last
-    || root.querySelector("#add-code");
+    || (m.act === "rm" && same[Math.min(m.at, same.length - 1)]) // after a removal: the next line's Remove, or the last
+    || (m.line && m.act !== "rm" ? $("#statement h2") : root.querySelector("#add-code")); // a line no longer shown: the heading
   el?.focus({ preventScroll: true });
 }
 
-/* A services edit not yet drawn (its change handler draws on the next tick). Any redraw of the same statement
-   applies it; a new statement (a preset or clinician load) replaces the lines it was made on, so drops it. */
+/* An edit to the lines not yet drawn (touch() sets it; a services box sets it and draws on the next tick). Any redraw
+   of the same statement marks the statement edited; a new statement (a preset or clinician load) replaces the lines
+   the edit was made on, so drops it. */
 let editPending = false;
 function markEdited() {
   if (st.source === "preset") { st.source = "custom"; st.title = `${st.title}, edited`; }
@@ -168,7 +169,7 @@ async function loadNpi(npi, { scroll = true, quiet = false } = {}) {
     if (st.lines.length) return;
     await ready;
     loadPreset(boot.defaultSpec, { quiet });
-    toast(`${why} Showing a typical practice instead.`);
+    toast(`${why} Showing a typical practice instead.`, { quiet });
   };
   const seq = ++loadSeq;
   try {
@@ -283,7 +284,7 @@ async function setZip(z, { quiet = false } = {}) {
   if (!z) { st.locKey = null; draw({ quiet }); return; }
   const key = await zipToLocality(z);
   st.locKey = key;
-  if (!key) toast(`ZIP ${z} isn't in CMS's locality file. Using national rates.`);
+  if (!key) toast(`ZIP ${z} isn't in CMS's locality file. Using national rates.`, { quiet });
   draw({ quiet });
 }
 
@@ -312,7 +313,7 @@ function wireStatement() {
     line.services = Math.max(0, Number(e.target.value) || 0);
     editPending = true;
     // Draw on the next tick: a Tab fires change before focus moves, so focus is then on the control it went to.
-    setTimeout(() => { if (editPending) touch(); });
+    setTimeout(() => { if (editPending) draw(); });
   });
   let suggestTimer = 0;
   root.addEventListener("input", (e) => {
@@ -347,7 +348,7 @@ function wireStatement() {
 }
 
 function touch(mark) {
-  markEdited();
+  editPending = true;
   draw({ mark });
 }
 
@@ -400,10 +401,8 @@ function addCode(k) {
   const r = T.table.codes[k];
   // Default to office only where 2027 has a non-facility rate (or, for a code deleted in 2027, 2026 had one).
   const officeOk = r && (r[5] != null || (r[4] == null && r[6] == null && r[1] != null));
-  const mark = focusMark($("#st-root")); // before st.lines changes
   st.lines.unshift({ hcpcs, mod, pos: officeOk ? "O" : "F", services: 100 });
-  touch(mark);
-  $("#add-code")?.focus();
+  touch({}); // an empty mark: focus goes back to the add-a-code box
 }
 
 /* ---------------- lookup ---------------- */
