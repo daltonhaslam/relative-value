@@ -27,7 +27,7 @@
   --sheet: #fdfdfb;
   --ink: #1c2330;
   --ink-2: #4a5263;
-  --ink-3: #6b7282;
+  --ink-3: #5f6676;       /* 4.8:1 on the green bars, 5.0:1 on --paper-2 */
   --form: #d9545e;        /* drop-out red: rules, box labels */
   --form-ink: #b8323d;    /* form red dark enough for small text (4.5:1 on paper) */
   --form-tint: #f2c9cc;
@@ -96,10 +96,18 @@ body {
   font-stretch: 100%;
   font-variant-numeric: tabular-nums;
 }
+/* While the web fonts load, scale the fallbacks to each web font's x-height (measured: Archivo 0.526, Courier Prime 0.451).
+   The font shorthand resets this, so only elements that inherit or set font-family alone are adjusted. */
+body, .sheet-foot, .addrow { font-size-adjust: 0.526; }
+.typed, .sheet, .sheet .lab, .effects .v, .spec-row .num, .tip td + td, .waterfall text.val { font-size-adjust: 0.451; }
 a { color: inherit; text-decoration-color: var(--form); text-underline-offset: 0.18em; }
 a:hover { text-decoration-thickness: 2px; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.sr:where(:not(:focus-within, :active)) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip:is(:focus-within, :active) {
+  position: fixed; z-index: 50; top: 0.5rem; left: 0.5rem; padding: 0.6rem 1rem;
+  background: var(--ink); color: var(--paper); font-weight: 650; text-decoration: none;
+}
 .wrap { max-width: 1240px; margin: 0 auto; padding: 0 var(--gutter); }
 p { max-width: var(--measure); margin: 0 0 1em; }
 .typed { font-family: var(--typed); }
@@ -231,6 +239,10 @@ p { max-width: var(--measure); margin: 0 0 1em; }
 .lines .pos:hover { border-color: var(--form); color: var(--ink); }
 .lines .x { border: 0; background: none; color: var(--ink-3); cursor: pointer; font-size: 1.1rem; line-height: 1; padding: 0.1rem 0.3rem; }
 .lines .x:hover { color: var(--cut); }
+@media (pointer: coarse) {
+  .lines .x, .lines .pos { min-block-size: 2.75rem; min-inline-size: 2.75rem; }
+  .lines input.svc { min-block-size: 2.75rem; }
+}
 .lines tfoot td { border-top: 1.5px dashed var(--bar-ink); padding-top: 0.7rem; font-weight: 700; }
 .lines tfoot td.v { font-weight: 700; }
 .lines tr.you td { background: color-mix(in srgb, var(--hi) 45%, transparent) !important; }
@@ -336,6 +348,12 @@ figure { margin: 0; }
 figcaption { font-size: 0.88rem; color: var(--ink-3); margin-top: 0.6rem; max-width: var(--measure); }
 svg text { font-family: var(--sans); fill: var(--ink-2); }
 .chart { width: 100%; height: auto; display: block; overflow: visible; }
+/* Narrow screens: charts keep their drawn size (text at 11px and up) and scroll sideways; main.js names a scrolling one and makes it focusable. */
+@media (max-width: 900px) {
+  .chart-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+  .chart-scroll > .chart { min-inline-size: 40rem; }
+  .chart-scroll > .dist { min-inline-size: 35rem; }
+}
 .axis line, .axis path { stroke: var(--form-tint); }
 .axis text { font-size: 11px; fill: var(--ink-3); font-stretch: 85%; }
 .zero { stroke: var(--neutral); stroke-width: 1; }

@@ -17,7 +17,7 @@ export function specialtyChart(rows, { you = null } = {}) {
   const x = lin(lo, hi, left, W - right);
   const ticks = [];
   for (let t = Math.ceil(lo * 20) / 20; t <= hi; t += 0.05) ticks.push(Math.round(t * 100) / 100);
-  let s = `<svg class="chart specchart" viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="spec-t spec-d"><title id="spec-t">2027 change in Medicare payment per service, by specialty</title><desc id="spec-d">For each specialty, CMS's relative-value-only impact and the full change including the conversion factor and geographic changes. A table version follows the chart.</desc>`;
+  let s = `<svg class="chart specchart" viewBox="0 0 ${W} ${H}" role="group" aria-labelledby="spec-t spec-d"><title id="spec-t">2027 change in Medicare payment per service, by specialty</title><desc id="spec-d">For each specialty, CMS's relative-value-only impact and the full change including the conversion factor and geographic changes. A table version follows the chart.</desc>`;
   s += `<g class="axis">`;
   for (const t of ticks) {
     s += `<line x1="${x(t)}" x2="${x(t)}" y1="${top - 6}" y2="${H - 4}" ${t === 0 ? 'class="zero"' : ""}/><text x="${x(t)}" y="${top - 11}" text-anchor="middle">${t === 0 ? "0" : pctFmt(t, 0)}</text>`;
@@ -37,6 +37,9 @@ export function specialtyChart(rows, { you = null } = {}) {
   });
   return s + `</svg>`;
 }
+
+/** On narrow screens a chart keeps its drawn size inside this sideways-scrolling wrapper; main.js names it and makes it focusable while it scrolls. */
+export const scroller = (svg, label) => `<div class="chart-scroll" data-label="${esc(label)}">${svg}</div>`;
 
 export function specialtyTable(rows) {
   let s = `<details class="note"><summary>Table: every specialty</summary><table class="lines"><thead><tr><th>Specialty</th><th class="n">CMS table</th><th class="n">With CF and GPCI</th></tr></thead><tbody>`;
@@ -97,8 +100,8 @@ export function historyChart(series) {
   const last = series[series.length - 1];
   s += `<circle cx="${xs(last.year)}" cy="${ys(last.cf)}" r="4.5" fill="var(--cut)" stroke="var(--sheet)" stroke-width="2"/>`;
   s += `<circle cx="${xs(last.year)}" cy="${ys(last.mei)}" r="4.5" fill="var(--ink-3)" stroke="var(--sheet)" stroke-width="2"/>`;
-  s += `<text x="${xs(last.year) + 8}" y="${ys(last.cf) + 4}" style="font-family:var(--typed);font-size:12px;fill:var(--ink)">$${last.cf.toFixed(2)}</text>`;
-  s += `<text x="${xs(last.year) + 8}" y="${ys(last.mei) + 4}" style="font-family:var(--typed);font-size:12px;fill:var(--ink)">$${last.mei.toFixed(2)}</text>`;
+  s += `<text x="${xs(last.year) + 8}" y="${ys(last.cf) + 4}" class="typed" style="font-size:12px;fill:var(--ink)">$${last.cf.toFixed(2)}</text>`;
+  s += `<text x="${xs(last.year) + 8}" y="${ys(last.mei) + 4}" class="typed" style="font-size:12px;fill:var(--ink)">$${last.mei.toFixed(2)}</text>`;
   s += `<text x="${xs(2004)}" y="${ys(series.find((d) => d.year === 2004).mei) - 12}" style="font-size:12px;fill:var(--ink-2)">If it had kept pace with practice costs (MEI)</text>`;
   s += `<text x="${xs(2004)}" y="${ys(series.find((d) => d.year === 2004).cf) + 22}" style="font-size:12px;fill:var(--cut)">The conversion factor Medicare paid</text>`;
   const step = (W - l - r) / (series.length - 1);
@@ -106,6 +109,12 @@ export function historyChart(series) {
     s += `<rect class="hhit" x="${xs(d.year) - step / 2}" y="${t}" width="${step}" height="${H - t - b}" fill="transparent" data-year="${d.year}" data-cf="${d.cf}" data-mei="${d.mei.toFixed(2)}"/>`;
   }
   return s + `</svg>`;
+}
+
+export function historyTable(series) {
+  let s = `<details class="note"><summary>Table: every year</summary><table class="lines"><thead><tr><th>Year</th><th class="n">Conversion factor</th><th class="n">1992 CF grown by the MEI</th></tr></thead><tbody>`;
+  for (const d of series) s += `<tr><td>${d.year}</td><td class="n v">$${d.cf.toFixed(4)}</td><td class="n v">$${d.mei.toFixed(2)}</td></tr>`;
+  return s + `</tbody></table></details>`;
 }
 
 /** bins: 11 shares; labels: bin labels; youBin: index or -1 */
@@ -121,7 +130,7 @@ export function distChart(bins, labels, youBin = -1) {
     const sign = i < 5 ? "neg" : i > 5 ? "pos" : "";
     const val = v || 0;
     s += `<rect class="bin ${sign}${i === youBin ? " you" : ""}" x="${x + 3}" y="${ys(val)}" width="${bw - 6}" height="${Math.max(0, H - b - ys(val))}" rx="2"><title>${esc(labels[i])}: ${(val * 100).toFixed(0)}% of practitioners</title></rect>`;
-    if (val >= 0.005) s += `<text x="${x + bw / 2}" y="${ys(val) - 6}" text-anchor="middle" style="font-family:var(--typed);fill:var(--ink)">${(val * 100).toFixed(0)}%</text>`;
+    if (val >= 0.005) s += `<text x="${x + bw / 2}" y="${ys(val) - 6}" text-anchor="middle" class="typed" style="fill:var(--ink)">${(val * 100).toFixed(0)}%</text>`;
     const [a, c] = labels[i].split(" to ");
     s += `<text x="${x + bw / 2}" y="${H - b + 16}" text-anchor="middle">${esc(a)}</text>`;
     if (c) s += `<text x="${x + bw / 2}" y="${H - b + 30}" text-anchor="middle">to ${esc(c)}</text>`;

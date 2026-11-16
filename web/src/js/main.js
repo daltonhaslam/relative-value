@@ -1,6 +1,6 @@
 import { feeShare, groupShare, presetLines, statement } from "./pricing.js";
 import { renderStatement } from "./statement.js";
-import { distChart, esc, pctFmt } from "./charts.js";
+import { distChart, esc, pctFmt, usd } from "./charts.js";
 import { npiRecord, pricingTables, zipToLocality } from "./data.js";
 import { SPEC_NAMES, impactGroup } from "./names.js";
 import { searchNames } from "./search.js";
@@ -35,13 +35,31 @@ function showTip(html, ev) {
   tip.style.top = `${Math.max(8, y)}px`;
 }
 const hideTip = () => { tip.style.display = "none"; };
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideTip(); });
+
+/* One persistent polite region (#live) for every announcement. Messages that arrive together are read
+   together; a newer message with the same key (e.g. the statement total) replaces the older one. */
+const live = $("#live");
+const liveQ = new Map();
+let liveTimer = 0;
+function announce(msg, key = msg) {
+  liveQ.set(key, msg);
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => {
+    const text = [...liveQ.values()].join(" ");
+    liveQ.clear();
+    live.textContent = "";
+    setTimeout(() => { live.textContent = text; }, 50); // clear first, so a repeated message is read again
+  }, 300);
+}
 function toast(msg) {
   const t = document.createElement("div");
   t.className = "toast";
-  t.setAttribute("role", "status");
+  t.setAttribute("aria-hidden", "true"); // read out through #live
   t.textContent = msg;
   document.body.append(t);
   setTimeout(() => t.remove(), 2600);
+  announce(msg);
 }
 
 /* ---------------- statement ---------------- */
@@ -64,7 +82,27 @@ function compute() {
 }
 
 let drawnLoc; // locality at the last draw: the map only repaints its "you" marker when this changes
-function draw({ press = false } = {}) {
+/** Where focus was inside the statement, so the same control (by line and action) gets it back after a redraw.
+    `from`: the control whose change caused the redraw; Tab has already taken focus off it when `change` fires. */
+function focusMark(root, from) {
+  const a = from && !root.contains(document.activeElement) ? from : document.activeElement;
+  if (!root.contains(a) || a === root) return null;
+  const act = a.dataset.act;
+  const i = a.closest("tr[data-i]")?.dataset.i;
+  return { id: a.id, act, line: i != null ? st.lines[Number(i)] : null, at: act ? [...root.querySelectorAll(`[data-act="${act}"]`)].indexOf(a) : -1, rows: root.querySelectorAll("tr[data-i]").length };
+}
+function focusRestore(root, m) {
+  const all = (act) => [...root.querySelectorAll(`[data-act="${act}"]`)];
+  const j = st.lines.indexOf(m.line);
+  const el = (m.id && root.querySelector(`#${m.id}`))
+    || (m.act === "more" && root.querySelectorAll("tr[data-i]")[m.rows]?.querySelector("[data-act]")) // first newly shown line
+    || (j >= 0 && root.querySelector(`tr[data-i="${j}"] [data-act="${m.act}"]`)) // same line
+    || (m.act && all(m.act)[Math.min(m.at, all(m.act).length - 1)]) // removed line: the next remove button, or the last
+    || root.querySelector("#add-code");
+  el?.focus({ preventScroll: true });
+}
+
+function draw({ press = false, say = false, from = null } = {}) {
   const root = $("#st-root");
   if (!T) return;
   const { res, cfKind, loc } = compute();
@@ -73,9 +111,16 @@ function draw({ press = false } = {}) {
     specName: SPEC_NAMES[st.specKey] || st.specKey,
     locName: st.locKey ? `${loc.name}, ${loc.state}` : "National average (no ZIP)",
   };
+  const mark = focusMark(root, from);
   root.innerHTML = renderStatement(view, res, {
     table: T.table, rbcs: T.rbcs, cf: { 2026: T.table.cf[2026][cfKind], 2027: T.table.cf[2027][cfKind] },
   });
+  if (mark) focusRestore(root, mark);
+  if (say) {
+    announce(res.rows.length
+      ? `Statement updated: ${pctFmt(res.pct)}, ${res.change > 0 ? "+" : ""}${usd(res.change, 0)} for the same services in 2027.`
+      : "Statement updated: no fee-schedule services.", "total");
+  }
   if (!press) root.querySelector(".stamp")?.classList.remove("press");
   st.last = res;
   highlightSpec(st.specKey);
@@ -140,8 +185,10 @@ async function loadNpi(npi, { scroll = true } = {}) {
     st.expanded = false;
     st.source = "npi";
     if (specByKey[st.specKey]) $("#st-spec").value = st.specKey;
+    const picked = res.contains(document.activeElement); // a result button had focus: it is about to be hidden
     res.hidden = true;
     draw({ press: true });
+    if (picked) $("#statement h2").focus({ preventScroll: true });
     if (scroll) scrollToStatement();
   } catch (e) {
     res.hidden = false;
@@ -213,7 +260,7 @@ async function readUrl() {
     return;
   }
   loadPreset(specByKey[s] ? s : boot.defaultSpec);
-  if (z && /^\d{5}$/.test(z)) { $("#st-zip").value = z; await setZip(z); }
+  if (z && /^\d{5}$/.test(z)) { $("#st-zip").value = z; await setZip(z, { say: false }); }
   if (l) {
     st.lines = parseLines(l);
     st.source = "custom";
@@ -223,13 +270,13 @@ async function readUrl() {
   }
 }
 
-async function setZip(z) {
+async function setZip(z, { say = true } = {}) {
   st.zip = z;
-  if (!z) { st.locKey = null; draw(); return; }
+  if (!z) { st.locKey = null; draw({ say }); return; }
   const key = await zipToLocality(z);
   st.locKey = key;
   if (!key) toast(`ZIP ${z} isn't in CMS's locality file. Using national rates.`);
-  draw();
+  draw({ say });
 }
 
 function wireStatement() {
@@ -249,12 +296,13 @@ function wireStatement() {
     if (act === "share") shareImage(st, st.last, { specName: SPEC_NAMES[st.specKey] || "", locName: locFor(st.locKey).name, url: boot.siteUrl });
     if (act === "add") addCode(b.dataset.code);
   });
+  let tabAt = -1e9; // a Tab out of a services box fires its change after focus has left it
   root.addEventListener("change", (e) => {
     if (e.target.dataset.act !== "svc") return;
     const tr = e.target.closest("tr[data-i]");
     const line = st.lines[Number(tr.dataset.i)];
     line.services = Math.max(0, Number(e.target.value) || 0);
-    touch();
+    touch(e.timeStamp - tabAt < 100 ? e.target : null);
   });
   let suggestTimer = 0;
   root.addEventListener("input", (e) => {
@@ -264,34 +312,55 @@ function wireStatement() {
     suggestTimer = setTimeout(() => suggestCodes(q), 120);
   });
   root.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") tabAt = e.timeStamp;
     if (e.target.id === "add-code" && e.key === "Enter") {
       e.preventDefault();
+      if (e.isComposing || e.keyCode === 229) return; // Enter confirms an IME conversion: not an add
       clearTimeout(suggestTimer);
       suggestCodes(e.target.value);
       const first = $("#add-results button");
       if (first) addCode(first.dataset.code);
+      return;
     }
+    if (e.target.closest(".addrow")) listKeys(e, $("#add-code"), $("#add-results"), () => showSuggest(false));
   });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".addrow")) showSuggest(false); });
   $("#st-spec").addEventListener("change", (e) => {
-    if (st.source === "npi" || st.source === "custom") { st.specKey = e.target.value; draw(); }
+    if (st.source === "npi" || st.source === "custom") { st.specKey = e.target.value; draw({ say: true }); }
     else loadPreset(e.target.value);
   });
   $("#st-zip").addEventListener("change", (e) => setZip(e.target.value.trim()));
-  $("#st-qp").addEventListener("change", (e) => { st.qp = e.target.checked; draw(); });
-  $("#st-aco").addEventListener("change", (e) => { st.aco = e.target.checked; draw(); });
+  $("#st-qp").addEventListener("change", (e) => { st.qp = e.target.checked; draw({ say: true }); });
+  $("#st-aco").addEventListener("change", (e) => { st.aco = e.target.checked; draw({ say: true }); });
 }
 
-function touch() {
+function touch(from) {
   if (st.source === "preset") { st.source = "custom"; st.title = `${st.title}, edited`; }
   if (st.source === "npi") { st.edited = true; st.volumes = st.volumes.replace(/( \(edited\))?$/, " (edited)"); }
-  draw();
+  draw({ say: true, from });
+}
+
+/** Arrow keys and Escape for a text box and its list of result buttons (the lookup and the add-a-code box). */
+function listKeys(e, input, ul, close) {
+  const items = [...ul.querySelectorAll("button")];
+  const i = items.indexOf(document.activeElement);
+  if (e.key === "ArrowDown") { e.preventDefault(); items[Math.min(items.length - 1, i + 1)]?.focus(); }
+  if (e.key === "ArrowUp" && i >= 0) { e.preventDefault(); (i === 0 ? input : items[i - 1]).focus(); }
+  if (e.key === "Escape") { close(); input.focus(); }
+}
+
+function showSuggest(open) {
+  const ul = $("#add-results");
+  if (!ul) return;
+  ul.hidden = !open;
+  $("#add-code")?.setAttribute("aria-expanded", String(open));
 }
 
 let codeIndex = null;
 function suggestCodes(q) {
   const ul = $("#add-results");
   q = q.trim().toLowerCase();
-  if (q.length < 2) { ul.hidden = true; return; }
+  if (q.length < 2) { showSuggest(false); return; }
   if (!codeIndex) {
     codeIndex = Object.keys(T.table.codes).map((k) => {
       const base = k.split("-")[0];
@@ -309,7 +378,7 @@ function suggestCodes(q) {
     .filter((c) => words.every((w) => c.hay.includes(w)))
     .sort((a, b) => (b.k.toLowerCase().startsWith(q) - a.k.toLowerCase().startsWith(q)) || (b.own - a.own) || a.k.localeCompare(b.k))
     .slice(0, 8);
-  ul.hidden = false;
+  showSuggest(true);
   ul.innerHTML = hits.length
     ? hits.map((c) => `<li><button type="button" data-act="add" data-code="${esc(c.k)}"><span class="who typed">${esc(c.k)}</span><span class="what">${esc(c.lbl || "No label")}</span></button></li>`).join("")
     : `<li class="msg">No fee-schedule code matches “${esc(q)}”.</li>`;
@@ -356,17 +425,9 @@ function wireLookup() {
     if (b) loadNpi(b.dataset.npi);
   });
   document.addEventListener("click", (e) => { if (!form.contains(e.target)) ul.hidden = true; });
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "ArrowDown") { e.preventDefault(); ul.querySelector("button")?.focus(); }
-    if (e.key === "Escape") ul.hidden = true;
-  });
-  ul.addEventListener("keydown", (e) => {
-    const items = [...ul.querySelectorAll("button")];
-    const i = items.indexOf(document.activeElement);
-    if (e.key === "ArrowDown") { e.preventDefault(); items[Math.min(items.length - 1, i + 1)]?.focus(); }
-    if (e.key === "ArrowUp") { e.preventDefault(); (i <= 0 ? input : items[i - 1]).focus(); }
-    if (e.key === "Escape") { ul.hidden = true; input.focus(); }
-  });
+  const keys = (e) => listKeys(e, input, ul, () => { ul.hidden = true; });
+  input.addEventListener("keydown", keys);
+  ul.addEventListener("keydown", keys);
   $("#hero-chips").addEventListener("click", (e) => {
     const b = e.target.closest("[data-spec]");
     if (b) ready.then(() => loadPreset(b.dataset.spec, { scroll: true }));
@@ -430,9 +491,25 @@ function drawDist(key, res) {
   const memo = `${s.key}|${you}`;
   if (memo === drawnDist) return;
   drawnDist = memo;
-  $("#dist-fig").innerHTML = distChart(s.dist, boot.bins, you)
-    + `<figcaption>${esc(s.name)}: share of about ${(s.practitionersK * 1000).toLocaleString("en-US")} practitioners by their change in total RVUs, CMS's 2025-claims estimate.${you >= 0 ? " “You” is the statement above, relative values and payment rules only." : ""}</figcaption>`;
+  const fig = $("#dist-fig");
+  fig.querySelector(".chart-scroll").innerHTML = distChart(s.dist, boot.bins, you);
+  const cap = fig.querySelector("figcaption") || fig.appendChild(document.createElement("figcaption"));
+  cap.textContent = `${s.name}: share of about ${(s.practitionersK * 1000).toLocaleString("en-US")} practitioners by their change in total RVUs, CMS's 2025-claims estimate.${you >= 0 ? " “You” is the statement above, relative values and payment rules only." : ""}`;
 }
+
+/* Narrow screens: a chart wider than its column scrolls sideways (site.css); while it does, it is a named, focusable region. */
+const fitScroller = new ResizeObserver((ents) => {
+  for (const { target: el } of ents) {
+    if (el.scrollWidth > el.clientWidth + 1) {
+      el.tabIndex = 0;
+      el.setAttribute("role", "region");
+      el.setAttribute("aria-label", el.dataset.label);
+    } else {
+      for (const a of ["tabindex", "role", "aria-label"]) el.removeAttribute(a);
+    }
+  }
+});
+document.querySelectorAll(".chart-scroll").forEach((el) => fitScroller.observe(el));
 
 /* ---------------- history hover ---------------- */
 function wireHistory() {

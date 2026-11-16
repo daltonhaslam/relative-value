@@ -85,7 +85,7 @@ export function renderStatement(state, res, { table, rbcs, cf }) {
 
   const add = `
   <div class="addrow">
-    <div class="box"><span class="lab">Add a code (number or plain words)</span><input id="add-code" type="text" autocomplete="off" spellcheck="false" placeholder="99214, knee replacement, echo" aria-label="Add a code" aria-controls="add-results"></div>
+    <div class="box"><label class="lab" for="add-code">Add a code (number or plain words)</label><input id="add-code" type="text" autocomplete="off" spellcheck="false" placeholder="99214, knee replacement, echo" aria-controls="add-results" aria-autocomplete="list" aria-expanded="false"></div>
     <ul class="results suggest" id="add-results" hidden></ul>
   </div>`;
 

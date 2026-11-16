@@ -20,9 +20,11 @@ await p.route("**/_vercel/insights/script.js", (r) => r.fulfill({ status: 200, c
 p.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 await p.goto(url, { waitUntil: "networkidle" });
 
-// 1. typical practice loads by default
+// 1. typical practice loads by default; the skip link shows when focused
 await p.waitForSelector("#st-root .lines tbody tr");
 assert.match(await p.textContent("#st-root .sheet-head"), /Typical family medicine practice/);
+await p.keyboard.press("Tab");
+assert.ok(await p.evaluate(() => document.activeElement.matches(".skip") && document.activeElement.getBoundingClientRect().width > 50), "skip link visible on focus");
 
 // 2. NPI lookup
 await p.fill("#q", rec[0]);
@@ -44,8 +46,28 @@ const before = await p.textContent("#st-root .total-big");
 await p.fill("#st-root input.svc >> nth=0", "1");
 await p.press("#st-root input.svc >> nth=0", "Tab");
 await p.waitForFunction((t) => document.querySelector("#st-root .total-big").textContent !== t, before);
-await p.click("#st-root button.x >> nth=0");
+await p.waitForFunction(() => /^Statement updated: /.test(document.querySelector("#live").textContent)); // announced
+assert.ok(await p.evaluate(() => document.activeElement.matches("#st-root input.svc")), "focus stays on the services box after Tab");
+// keyboard edits keep focus on the same control (the statement redraws)
+const posLine = await p.getAttribute("#st-root tr[data-i] >> nth=0", "data-i");
+await p.focus("#st-root tr[data-i] >> nth=0 >> button.pos");
+await p.keyboard.press("Enter");
+assert.equal(await p.evaluate(() => document.activeElement.closest("tr[data-i]")?.dataset.i + document.activeElement.dataset.act), `${posLine}pos`);
+const nRows = await p.$$eval("#st-root tr[data-i]", (r) => r.length);
+await p.focus("#st-root button.x >> nth=0");
+await p.keyboard.press("Enter");
+assert.equal(await p.$$eval("#st-root tr[data-i]", (r) => r.length), nRows - 1);
+assert.ok(await p.evaluate(() => document.activeElement.matches("#st-root button.x")), "focus moves to the next remove button");
+// add a code: Escape closes the suggestions; an IME-confirming Enter adds nothing; a click adds
 await p.fill("#add-code", "knee replacement");
+await p.waitForSelector("#add-results button[data-code='27447']");
+assert.equal(await p.getAttribute("#add-code", "aria-expanded"), "true");
+await p.press("#add-code", "Escape");
+assert.ok(await p.isHidden("#add-results"));
+assert.equal(await p.getAttribute("#add-code", "aria-expanded"), "false");
+await p.evaluate(() => document.querySelector("#add-code").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true })));
+assert.equal(await p.$$eval("#st-root tr[data-i]", (r) => r.length), nRows - 1, "IME Enter added a line");
+await p.fill("#add-code", "knee replacement ");
 await p.waitForSelector("#add-results button[data-code='27447']");
 await p.click("#add-results button[data-code='27447']");
 await p.waitForSelector("#st-root tr[data-i] td.code:text('27447')");
