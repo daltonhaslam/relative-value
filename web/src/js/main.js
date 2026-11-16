@@ -38,11 +38,12 @@ const hideTip = () => { tip.style.display = "none"; };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideTip(); });
 
 /* One persistent polite region (#live) for every announcement. Latest wins, except that a notice (a toast)
-   and the statement total that follows it (e.g. an unknown ZIP, then the repriced total) are read together. */
+   and the statement total that follows it (e.g. an unknown ZIP, then the repriced total) are read together.
+   kind: "note" (a toast), "total" (the repriced statement), "hint" (a result count: never merged, a total drops it). */
 const live = $("#live");
-let note = "", total = "", liveTimer = 0;
-function announce(msg, isTotal = false) {
-  if (isTotal) total = msg; else note = msg;
+let note = "", total = "", noteIsHint = false, liveTimer = 0;
+function announce(msg, kind = "note") {
+  if (kind === "total") { total = msg; if (noteIsHint) note = ""; } else { note = msg; noteIsHint = kind === "hint"; if (noteIsHint) total = ""; }
   clearTimeout(liveTimer);
   live.textContent = ""; // cleared now and set after the pause, so a repeated message is read again
   liveTimer = setTimeout(() => {
@@ -80,26 +81,7 @@ function compute() {
 }
 
 let drawnLoc; // locality at the last draw: the map only repaints its "you" marker when this changes
-/** Make `a`'s children match `b`'s while keeping every element whose tag lines up, so an edit doesn't destroy
-    the control the reader is on or is clicking (an edit's change fires on mousedown, before the click). */
-function morph(a, b) {
-  const bn = [...b.childNodes];
-  bn.forEach((y, k) => {
-    const x = a.childNodes[k];
-    if (!x) a.append(y);
-    else if (x.nodeType !== 1 || x.nodeName !== y.nodeName) { if (!x.isEqualNode(y)) x.replaceWith(y); }
-    else {
-      for (const { name } of [...x.attributes]) if (!y.hasAttribute(name)) x.removeAttribute(name);
-      for (const { name, value } of y.attributes) if (x.getAttribute(name) !== value) x.setAttribute(name, value);
-      if (x.nodeName === "INPUT" && x.value !== y.value) x.value = y.value; // an edited input ignores its value attribute
-      morph(x, y);
-    }
-  });
-  while (a.childNodes.length > bn.length) a.lastChild.remove();
-}
-
-/** Where focus was in the statement (by action and position, read from the DOM before it changes),
-    for the cases where the focused control disappears: the last line removed, or "Show all". */
+/** Where focus was in the statement, by action and position, read from the DOM before a redraw replaces it. */
 function focusMark(root) {
   const a = document.activeElement;
   if (!root.contains(a) || a === root) return null;
@@ -109,12 +91,12 @@ function focusMark(root) {
 function focusRestore(root, m) {
   const same = m.act ? [...root.querySelectorAll(`[data-act="${m.act}"]`)] : [];
   const el = (m.act === "more" && root.querySelectorAll("tr[data-i]")[m.rows]?.querySelector("[data-act]")) // first newly shown line
-    || same[Math.min(m.at, same.length - 1)] // the same control at the same place, or the last one left
+    || same[Math.min(m.at, same.length - 1)] // the same control at the same place (after a removal, the next line's), or the last
     || root.querySelector("#add-code");
   el?.focus({ preventScroll: true });
 }
 
-/** press: a new statement (fresh markup, the stamp animates). quiet: drawn from the URL, not announced. */
+/** press: a new statement (the stamp animates; focus is the caller's business). quiet: drawn from the URL, not announced. */
 function draw({ press = false, quiet = false } = {}) {
   const root = $("#st-root");
   if (!T) return;
@@ -124,17 +106,15 @@ function draw({ press = false, quiet = false } = {}) {
     specName: SPEC_NAMES[st.specKey] || st.specKey,
     locName: st.locKey ? `${loc.name}, ${loc.state}` : "National average (no ZIP)",
   };
-  const mark = focusMark(root);
-  const html = renderStatement(view, res, {
+  const mark = !press && focusMark(root);
+  root.innerHTML = renderStatement(view, res, {
     table: T.table, rbcs: T.rbcs, cf: { 2026: T.table.cf[2026][cfKind], 2027: T.table.cf[2027][cfKind] },
   });
-  if (press) root.innerHTML = html;
-  else { const t = document.createElement("template"); t.innerHTML = html; morph(root, t.content); }
-  if (mark && !root.contains(document.activeElement)) focusRestore(root, mark);
+  if (mark) focusRestore(root, mark);
   if (!quiet) {
     announce(res.rows.length
       ? `Statement updated: ${pctFmt(res.pct)}, ${res.change > 0 ? "+" : ""}${usd(res.change, 0)} for the same services in 2027.`
-      : "Statement updated: no fee-schedule services.", true);
+      : "Statement updated: no fee-schedule services.", "total");
   }
   if (!press) root.querySelector(".stamp")?.classList.remove("press");
   st.last = res;
@@ -180,7 +160,7 @@ async function loadNpi(npi, { scroll = true, quiet = false } = {}) {
   try {
     const rec = await npiRecord(npi);
     if (!rec) {
-      showList(res, $("#q"), true);
+      showList(res, true);
       res.innerHTML = `<li class="msg">No clinician with NPI ${esc(npi)} in CMS's ${boot.dataYear} file. The file covers clinicians who billed Medicare Part B fee-for-service that year.</li>`;
       await fallback(`No clinician with NPI ${npi} in CMS's ${boot.dataYear} file.`);
       return;
@@ -201,12 +181,12 @@ async function loadNpi(npi, { scroll = true, quiet = false } = {}) {
     st.source = "npi";
     if (specByKey[st.specKey]) $("#st-spec").value = st.specKey;
     const picked = res.contains(document.activeElement); // a result button had focus: it is about to be hidden
-    showList(res, $("#q"), false);
+    showList(res, false);
     draw({ press: true, quiet });
     if (picked) $("#statement h2").focus({ preventScroll: true });
     if (scroll) scrollToStatement();
   } catch (e) {
-    showList(res, $("#q"), true);
+    showList(res, true);
     res.innerHTML = `<li class="msg">${esc(e.message)}</li>`;
     await fallback(`Couldn't load NPI ${npi}: ${e.message}`);
   }
@@ -296,12 +276,22 @@ async function setZip(z, { quiet = false } = {}) {
 
 function wireStatement() {
   const root = $("#st-root");
+  // A services edit commits on blur. If that blur came from pressing on another control, redrawing at once
+  // would replace that control before its click; so the redraw waits for the press to end. A click inside
+  // the statement redraws first (flushEdit), so its action sees, and its link or image carries, the edit.
+  let pressed = false, editPending = false;
+  const flushEdit = () => { if (editPending) { editPending = false; touch(); } };
+  document.addEventListener("pointerdown", () => { pressed = true; }, true);
+  for (const t of ["pointerup", "pointercancel"]) {
+    document.addEventListener(t, () => { pressed = false; if (editPending) setTimeout(flushEdit); }, true);
+  }
   root.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-act]");
     if (!b) return;
     const tr = b.closest("tr[data-i]");
     const line = tr ? st.lines[Number(tr.dataset.i)] : null;
     const act = b.dataset.act;
+    flushEdit();
     if (act === "pos" && line) { line.pos = line.pos === "F" ? "O" : "F"; touch(); }
     if (act === "rm" && line) { st.lines.splice(Number(tr.dataset.i), 1); touch(); }
     if (act === "more") { st.expanded = true; draw({ quiet: true }); }
@@ -316,7 +306,10 @@ function wireStatement() {
     const tr = e.target.closest("tr[data-i]");
     const line = st.lines[Number(tr.dataset.i)];
     line.services = Math.max(0, Number(e.target.value) || 0);
-    touch(); // the redraw keeps the row's controls, so a Tab or a click that fired this change still lands
+    editPending = true;
+    if (pressed) return; // redrawn when the press ends (above)
+    // Enter: redraw now. Tab: change fires before focus moves, so redraw once it has (focus is then restored to it).
+    if (document.activeElement === e.target) flushEdit(); else setTimeout(flushEdit);
   });
   let suggestTimer = 0;
   root.addEventListener("input", (e) => {
@@ -337,7 +330,10 @@ function wireStatement() {
     }
     if (e.target.closest(".addrow")) listKeys(e, $("#add-code"), $("#add-results"));
   });
-  document.addEventListener("click", (e) => { if (!e.target.closest(".addrow") && $("#add-results")) showList($("#add-results"), $("#add-code"), false); });
+  document.addEventListener("click", (e) => {
+    const ul = $("#add-results");
+    if (ul && !ul.hidden && !e.target.closest(".addrow")) showList(ul, false);
+  });
   $("#st-spec").addEventListener("change", (e) => {
     if (st.source === "npi" || st.source === "custom") { st.specKey = e.target.value; draw(); }
     else loadPreset(e.target.value);
@@ -353,26 +349,26 @@ function touch() {
   draw();
 }
 
-/** Show or hide a combobox's list, keeping the input's aria-expanded in step (the lookup and the add-a-code box). */
-function showList(ul, input, open) {
+/** Show or hide a result list (the lookup and the add-a-code box). `clear` empties it too, so ArrowDown can't reopen old results. */
+function showList(ul, open, { clear = false } = {}) {
   ul.hidden = !open;
-  input.setAttribute("aria-expanded", String(open));
+  if (clear) ul.replaceChildren();
 }
 
-/** Arrow keys and Escape for a combobox and its list of result buttons. ArrowDown reopens a closed list that has results. */
+/** Arrow keys and Escape for a text box and its list of result buttons. ArrowDown reopens a closed list that has results. */
 function listKeys(e, input, ul) {
   const items = [...ul.querySelectorAll("button")];
   const i = items.indexOf(document.activeElement);
-  if (e.key === "ArrowDown" && items.length) { e.preventDefault(); showList(ul, input, true); items[Math.min(items.length - 1, i + 1)].focus(); }
+  if (e.key === "ArrowDown" && items.length) { e.preventDefault(); showList(ul, true); items[Math.min(items.length - 1, i + 1)].focus(); }
   if (e.key === "ArrowUp" && i >= 0) { e.preventDefault(); (items[i - 1] ?? input).focus(); }
-  if (e.key === "Escape") { showList(ul, input, false); input.focus(); }
+  if (e.key === "Escape") { showList(ul, false); input.focus(); }
 }
 
 let codeIndex = null;
 function suggestCodes(q) {
   const ul = $("#add-results");
   q = q.trim().toLowerCase();
-  if (q.length < 2) { showList(ul, $("#add-code"), false); return; }
+  if (q.length < 2) { showList(ul, false, { clear: true }); return; }
   if (!codeIndex) {
     codeIndex = Object.keys(T.table.codes).map((k) => {
       const base = k.split("-")[0];
@@ -390,7 +386,8 @@ function suggestCodes(q) {
     .filter((c) => words.every((w) => c.hay.includes(w)))
     .sort((a, b) => (b.k.toLowerCase().startsWith(q) - a.k.toLowerCase().startsWith(q)) || (b.own - a.own) || a.k.localeCompare(b.k))
     .slice(0, 8);
-  showList(ul, $("#add-code"), true);
+  showList(ul, true);
+  announce(hits.length ? `${hits.length} ${hits.length === 1 ? "suggestion" : "suggestions"}. Press Down to choose.` : "No fee-schedule code matches.", "hint");
   ul.innerHTML = hits.length
     ? hits.map((c) => `<li><button type="button" data-act="add" data-code="${esc(c.k)}"><span class="who typed">${esc(c.k)}</span><span class="what">${esc(c.lbl || "No label")}</span></button></li>`).join("")
     : `<li class="msg">No fee-schedule code matches “${esc(q)}”.</li>`;
@@ -416,9 +413,9 @@ function wireLookup() {
   const run = async () => {
     const q = input.value.trim();
     const my = ++seq;
-    if (/^\d{10}$/.test(q)) { loadNpi(q); return; }
-    if (q.replace(/[^a-z]/gi, "").length < 2) { showList(ul, input, false); return; }
-    showList(ul, input, true);
+    if (/^\d{10}$/.test(q)) { showList(ul, false, { clear: true }); loadNpi(q); return; }
+    if (q.replace(/[^a-z]/gi, "").length < 2) { showList(ul, false, { clear: true }); return; }
+    showList(ul, true);
     ul.innerHTML = `<li class="msg">Searching…</li>`;
     try {
       const hits = await searchNames(q, 30);
@@ -426,6 +423,7 @@ function wireLookup() {
       ul.innerHTML = hits.length
         ? hits.map((h) => `<li><button type="button" data-npi="${esc(h.npi)}"><span class="who">${esc(h.name)}</span><span class="typed muted">${esc(h.npi)}</span><span class="what">${esc(h.type)}, ${esc(h.city)}, ${esc(h.state)}</span></button></li>`).join("")
         : `<li class="msg">No match in CMS's ${boot.dataYear} file. Try last name first, or the NPI.</li>`;
+      announce(hits.length ? `${hits.length} ${hits.length === 1 ? "clinician" : "clinicians"} found. Press Down to choose.` : ul.textContent, "hint");
     } catch (e) {
       ul.innerHTML = `<li class="msg">${esc(e.message)}</li>`;
     }
@@ -436,7 +434,7 @@ function wireLookup() {
     const b = e.target.closest("button[data-npi]");
     if (b) loadNpi(b.dataset.npi);
   });
-  document.addEventListener("click", (e) => { if (!form.contains(e.target)) showList(ul, input, false); });
+  document.addEventListener("click", (e) => { if (!ul.hidden && !form.contains(e.target)) showList(ul, false); });
   const keys = (e) => listKeys(e, input, ul);
   input.addEventListener("keydown", keys);
   ul.addEventListener("keydown", keys);

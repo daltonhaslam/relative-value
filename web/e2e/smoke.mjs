@@ -63,28 +63,15 @@ assert.ok(await p.evaluate(() => document.activeElement.matches("#st-root button
 // add a code: Escape closes the suggestions; an IME-confirming Enter adds nothing; a click adds
 await p.fill("#add-code", "knee replacement");
 await p.waitForSelector("#add-results button[data-code='27447']");
-assert.equal(await p.getAttribute("#add-code", "aria-expanded"), "true");
+await p.waitForFunction(() => /^\d+ suggestions?\. Press Down to choose\.$/.test(document.querySelector("#live").textContent)); // count announced
 await p.press("#add-code", "Escape");
 assert.ok(await p.isHidden("#add-results"));
-assert.equal(await p.getAttribute("#add-code", "aria-expanded"), "false");
 await p.evaluate(() => document.querySelector("#add-code").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true })));
 assert.equal(await p.$$eval("#st-root tr[data-i]", (r) => r.length), nRows - 1, "IME Enter added a line");
 await p.fill("#add-code", "knee replacement ");
 await p.waitForSelector("#add-results button[data-code='27447']");
 await p.click("#add-results button[data-code='27447']");
 await p.waitForSelector("#st-root tr[data-i] td.code:text('27447')");
-// edit a services box, then a real mouse press on a Remove button: the edit's change fires on mousedown
-// and redraws, and the click must still land
-const nNow = await p.$$eval("#st-root tr[data-i]", (r) => r.length);
-await p.fill("#st-root input.svc >> nth=1", "7");
-await p.locator("#st-root button.x >> nth=2").scrollIntoViewIfNeeded();
-const xb = await p.locator("#st-root button.x >> nth=2").boundingBox();
-await p.mouse.move(xb.x + xb.width / 2, xb.y + xb.height / 2);
-await p.mouse.down();
-await p.waitForTimeout(150);
-await p.mouse.up();
-await p.waitForFunction((n) => document.querySelectorAll("#st-root tr[data-i]").length === n - 1, nNow, { timeout: 3000 });
-assert.equal(await p.inputValue("#st-root input.svc >> nth=1"), "7");
 
 // 5. ZIP -> locality (preset path)
 await p.click("#hero-chips [data-spec='DERMATOLOGY']");
@@ -114,6 +101,26 @@ await dl.saveAs(`${shots}/share.png`);
 await p.goto(`${url}?s=CARDIOLOGY&z=10001&qp=1`, { waitUntil: "networkidle" });
 await p.waitForFunction(() => /cardiology/i.test(document.querySelector("#st-root .sheet-head")?.textContent || ""));
 assert.ok(await p.isChecked("#st-qp"));
+
+// 10. edit a services box, then press a Remove button with a real mouse (down, pause, up). The edit commits on
+// mousedown; the line under the pointer must be the one removed, and the edit must survive. Four lines, so
+// "Show all" can't hide a row.
+await p.goto(`${url}?s=FAMILY%20PRACTICE&l=99213:O:100,99214:O:200,27447:F:5,93306:O:10`, { waitUntil: "networkidle" });
+await p.waitForSelector("#st-root tr[data-i] td.code:text('93306')");
+const codes = () => p.$$eval("#st-root tr[data-i] td.code", (t) => t.map((x) => x.textContent));
+assert.deepEqual(await codes(), ["99213", "99214", "27447", "93306"]);
+await p.fill("#st-root tr[data-i]:has(td.code:text('99213')) input.svc", "7");
+const rm = p.locator("#st-root tr[data-i]:has(td.code:text('27447')) button.x");
+await rm.scrollIntoViewIfNeeded();
+const xb = await rm.boundingBox();
+await p.mouse.move(xb.x + xb.width / 2, xb.y + xb.height / 2);
+await p.mouse.down();
+await p.waitForTimeout(150);
+await p.mouse.up();
+await p.waitForFunction(() => document.querySelectorAll("#st-root tr[data-i]").length === 3, null, { timeout: 3000 });
+assert.deepEqual(await codes(), ["99213", "99214", "93306"]);
+assert.equal(await p.inputValue("#st-root tr[data-i]:has(td.code:text('99213')) input.svc"), "7");
+assert.match(new URL(p.url()).searchParams.get("l"), /^99213:O:7,99214:O:200,93306:O:10$/);
 
 await b.close();
 assert.deepEqual(errors, []);

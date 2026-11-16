@@ -52,13 +52,13 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
     const usdVals = Object.values(vals).filter(Boolean).map((v) => v.b).sort((x, y) => x - y);
     const q = (p) => usdVals[Math.min(usdVals.length - 1, Math.floor(p * usdVals.length))];
     const nat = price(table, key, { rvuYear: 2027, pos }) / price(table, key, { rvuYear: 2026, pos }) - 1;
-    cache = { code, nat, usdEdges: [q(1 / 6), q(2 / 6), q(3 / 6), q(4 / 6), q(5 / 6)], usdLo: usdVals[0], usdHi: usdVals[usdVals.length - 1] };
+    cache = { code, nat, priced: Number.isFinite(nat) && usdVals.length > 0, usdEdges: [q(1 / 6), q(2 / 6), q(3 / 6), q(4 / 6), q(5 / 6)], usdLo: usdVals[0], usdHi: usdVals[usdVals.length - 1] };
     return cache;
   }
 
   // Needs only the pricing table: the scale, the "your locality" line and the table work even if the map geometry fails.
   function paint() {
-    const { nat, usdEdges, usdLo, usdHi } = stats();
+    const { nat, priced, usdEdges, usdLo, usdHi } = stats();
     const meas = measSel.value;
     youLoc = getYou();
     for (const [loc, ps] of byLoc || []) {
@@ -73,7 +73,9 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
     }
     sayYou();
     fillTable();
-    if (meas === "pct") {
+    if (!priced) {
+      scale.innerHTML = `<span class="muted">CMS publishes no national price for this service in both 2026 and 2027.</span>`;
+    } else if (meas === "pct") {
       scale.innerHTML = `<span>${pctFmt(nat + OFFSETS[0], 1)} or better</span><span class="ramp">${[1, 2, 3, 4, 5, 6].map((i) => `<i class="sw q${i}"></i>`).join("")}</span><span>${pctFmt(nat + OFFSETS[4], 1)} or worse</span><span class="muted">National change for this service: ${pctFmt(nat, 1)}. Steps every half point.</span>`;
     } else {
       scale.innerHTML = `<span>${usd(usdLo)}</span><span class="ramp">${[1, 2, 3, 4, 5, 6].map((i) => `<i class="sw u${i}"></i>`).join("")}</span><span>${usd(usdHi)}</span><span class="muted">2027 payment, in sixths of localities</span>`;
@@ -94,7 +96,8 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
   function sayYou() {
     const l = boot.localities[youLoc];
     const v = vals[youLoc];
-    youEl.textContent = !l ? "Enter a practice ZIP code in the statement above to see your own locality's rates here."
+    youEl.textContent = !cache.priced ? "CMS publishes no national price for this service in both 2026 and 2027, so there is nothing to map."
+      : !l ? "Enter a practice ZIP code in the statement above to see your own locality's rates here."
       : v ? `Your locality, ${l.name}, ${l.state}: ${usd(v.a)} in 2026, ${usd(v.b)} in 2027 (${pctFmt(v.pct)}). National change: ${pctFmt(cache.nat)}.`
       : `CMS publishes no price for this service in your locality, ${l.name}, ${l.state}.`;
   }
