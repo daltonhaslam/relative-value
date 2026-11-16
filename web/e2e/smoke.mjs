@@ -43,11 +43,13 @@ assert.ok(found, "name search returned results");
 
 // 4. edit: change volume, toggle place, remove a line, add a code
 const before = await p.textContent("#st-root .total-big");
+const svcLine = await p.getAttribute("#st-root tr[data-i] >> nth=0", "data-i");
 await p.fill("#st-root input.svc >> nth=0", "1");
 await p.press("#st-root input.svc >> nth=0", "Tab");
 await p.waitForFunction((t) => document.querySelector("#st-root .total-big").textContent !== t, before);
 await p.waitForFunction(() => /^Statement updated: /.test(document.querySelector("#live").textContent)); // announced
-assert.ok(await p.evaluate(() => document.activeElement.matches("#st-root input.svc")), "focus stays on the services box after Tab");
+// Tab out of the services box lands on the next control of the same line (its Remove button), not on <body>
+assert.equal(await p.evaluate(() => document.activeElement.closest("#st-root tr[data-i]")?.dataset.i + document.activeElement.dataset.act), `${svcLine}rm`);
 // keyboard edits keep focus on the same control (the statement redraws)
 const posLine = await p.getAttribute("#st-root tr[data-i] >> nth=0", "data-i");
 await p.focus("#st-root tr[data-i] >> nth=0 >> button.pos");

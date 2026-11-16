@@ -38,8 +38,8 @@ export function specialtyChart(rows, { you = null } = {}) {
   return s + `</svg>`;
 }
 
-/** On narrow screens a chart keeps its drawn size inside this sideways-scrolling wrapper; main.js names it and makes it focusable while it scrolls. */
-export const scroller = (svg, label) => `<div class="chart-scroll" data-label="${esc(label)}">${svg}</div>`;
+/** On narrow screens a chart keeps its drawn size inside this sideways-scrolling region; main.js makes it focusable while it scrolls. */
+export const scroller = (svg, label) => `<div class="chart-scroll" role="region" aria-label="${esc(label)}">${svg}</div>`;
 
 export function specialtyTable(rows) {
   let s = `<details class="note"><summary>Table: every specialty</summary><table class="lines"><thead><tr><th>Specialty</th><th class="n">CMS table</th><th class="n">With CF and GPCI</th></tr></thead><tbody>`;

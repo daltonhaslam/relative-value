@@ -114,7 +114,7 @@
         <select id="dist-spec">{{SPEC_OPTIONS}}</select></div></div>
       <p class="note">{{DIST_NOTE}}</p>
     </div>
-    <figure id="dist-fig">{{DIST_CHART}}</figure>
+    <figure id="dist-fig">{{DIST_CHART}}<figcaption></figcaption></figure>
   </div>
 </section>
 
@@ -135,7 +135,7 @@
       <div id="map-root" class="map" role="img" aria-label="{{MAP_ALT}}"><p class="note">The county map loads here.</p></div>
       <div class="scale" id="map-scale"></div>
       <p class="note" id="map-you"></p>
-      <details class="note"><summary>Table: every payment locality</summary><div id="map-table" class="lines-wrap chart-scroll" data-label="Locality table, scrolls sideways"><p>The table loads with the map.</p></div></details>
+      <details class="note"><summary>Table: every payment locality</summary><div id="map-table" class="lines-wrap chart-scroll" role="region" aria-label="Locality table"><p>The table loads with the map.</p></div></details>
       <figcaption>{{MAP_CAPTION}}</figcaption>
     </figure>
   </div>

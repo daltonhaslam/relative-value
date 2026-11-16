@@ -35,6 +35,9 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
   let byLoc = null; // locKey -> county paths
   let cache = null; // per selected code: { code, vals, nat, usdEdges, usdLo, usdHi }
   let youLoc = null;
+  let tableCode = null; // the service the locality table was last built for
+  const tableBox = tableEl.closest("details");
+  const locRows = Object.entries(boot.localities).sort(([, a], [, b]) => a.state.localeCompare(b.state) || a.name.localeCompare(b.name));
 
   function stats() {
     const code = codeSel.value;
@@ -68,17 +71,22 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
       for (const p of ps) p.setAttribute("class", cl);
     }
     sayYou();
-    const svc = codeSel.selectedOptions[0].textContent;
-    const rows = Object.entries(boot.localities).sort(([, a], [, b]) => a.state.localeCompare(b.state) || a.name.localeCompare(b.name));
-    tableEl.innerHTML = `<table class="lines"><caption class="sr">${esc(svc)}, by payment locality</caption><thead><tr><th>Locality</th><th class="n">2026</th><th class="n">2027</th><th class="n">Change</th><th class="n">Work GPCI</th></tr></thead><tbody>${rows.map(([k, l]) => {
-      const v = vals[k];
-      return `<tr><td>${esc(l.name)}, ${esc(l.state)}</td><td class="n v">${v ? usd(v.a) : "—"}</td><td class="n v">${v ? usd(v.b) : "—"}</td><td class="n v">${v ? pctFmt(v.pct) : "—"}</td><td class="n v">${l.g26[0].toFixed(3)} → ${l.g27[0].toFixed(3)}</td></tr>`;
-    }).join("")}</tbody></table>`;
+    fillTable();
     if (meas === "pct") {
       scale.innerHTML = `<span>${pctFmt(nat + OFFSETS[0], 1)} or better</span><span class="ramp">${[1, 2, 3, 4, 5, 6].map((i) => `<i class="sw q${i}"></i>`).join("")}</span><span>${pctFmt(nat + OFFSETS[4], 1)} or worse</span><span class="muted">National change for this service: ${pctFmt(nat, 1)}. Steps every half point.</span>`;
     } else {
       scale.innerHTML = `<span>${usd(usdLo)}</span><span class="ramp">${[1, 2, 3, 4, 5, 6].map((i) => `<i class="sw u${i}"></i>`).join("")}</span><span>${usd(usdHi)}</span><span class="muted">2027 payment, in sixths of localities</span>`;
     }
+  }
+
+  // The locality table: built when it is open and the map has data, and rebuilt only for a new service.
+  function fillTable() {
+    if (!tableBox.open || !cache || tableCode === cache.code) return;
+    tableCode = cache.code;
+    tableEl.innerHTML = `<table class="lines"><caption class="sr">${esc(codeSel.selectedOptions[0].textContent)}, by payment locality</caption><thead><tr><th>Locality</th><th class="n">2026</th><th class="n">2027</th><th class="n">Change</th><th class="n">Work GPCI</th></tr></thead><tbody>${locRows.map(([k, l]) => {
+      const v = vals[k];
+      return `<tr><td>${esc(l.name)}, ${esc(l.state)}</td><td class="n v">${v ? usd(v.a) : "—"}</td><td class="n v">${v ? usd(v.b) : "—"}</td><td class="n v">${v ? pctFmt(v.pct) : "—"}</td><td class="n v">${l.g26[0].toFixed(3)} → ${l.g27[0].toFixed(3)}</td></tr>`;
+    }).join("")}</tbody></table>`;
   }
 
   // The reader's own locality in words: the map's values are otherwise only in the hover tip and the table.
@@ -142,6 +150,7 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
 
   codeSel.addEventListener("change", () => paths && paint());
   measSel.addEventListener("change", () => paths && paint());
+  tableBox.addEventListener("toggle", fillTable);
   document.addEventListener("rv:locality", () => paths && moveYou());
   const io = new IntersectionObserver((ents) => {
     if (ents.some((x) => x.isIntersecting)) { io.disconnect(); start(); }

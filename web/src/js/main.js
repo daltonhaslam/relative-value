@@ -37,19 +37,17 @@ function showTip(html, ev) {
 const hideTip = () => { tip.style.display = "none"; };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideTip(); });
 
-/* One persistent polite region (#live) for every announcement. Messages that arrive together are read
-   together; a newer message with the same key (e.g. the statement total) replaces the older one. */
+/* One persistent polite region (#live) for every announcement. Latest wins, except that a notice (a toast)
+   and the statement total that follows it (e.g. an unknown ZIP, then the repriced total) are read together. */
 const live = $("#live");
-const liveQ = new Map();
-let liveTimer = 0;
-function announce(msg, key = msg) {
-  liveQ.set(key, msg);
+let note = "", total = "", liveTimer = 0;
+function announce(msg, isTotal = false) {
+  if (isTotal) total = msg; else note = msg;
   clearTimeout(liveTimer);
+  live.textContent = ""; // cleared now and set after the pause, so a repeated message is read again
   liveTimer = setTimeout(() => {
-    const text = [...liveQ.values()].join(" ");
-    liveQ.clear();
-    live.textContent = "";
-    setTimeout(() => { live.textContent = text; }, 50); // clear first, so a repeated message is read again
+    live.textContent = [note, total].filter(Boolean).join(" ");
+    note = total = "";
   }, 300);
 }
 function toast(msg) {
@@ -82,27 +80,27 @@ function compute() {
 }
 
 let drawnLoc; // locality at the last draw: the map only repaints its "you" marker when this changes
-/** Where focus was inside the statement, so the same control (by line and action) gets it back after a redraw.
-    `from`: the control whose change caused the redraw; Tab has already taken focus off it when `change` fires. */
-function focusMark(root, from) {
-  const a = from && !root.contains(document.activeElement) ? from : document.activeElement;
+/** Where focus was inside the statement, so the same control (by line and action) gets it back after a redraw. */
+function focusMark(root) {
+  const a = document.activeElement;
   if (!root.contains(a) || a === root) return null;
   const act = a.dataset.act;
   const i = a.closest("tr[data-i]")?.dataset.i;
   return { id: a.id, act, line: i != null ? st.lines[Number(i)] : null, at: act ? [...root.querySelectorAll(`[data-act="${act}"]`)].indexOf(a) : -1, rows: root.querySelectorAll("tr[data-i]").length };
 }
 function focusRestore(root, m) {
-  const all = (act) => [...root.querySelectorAll(`[data-act="${act}"]`)];
+  const same = m.act ? [...root.querySelectorAll(`[data-act="${m.act}"]`)] : [];
   const j = st.lines.indexOf(m.line);
   const el = (m.id && root.querySelector(`#${m.id}`))
     || (m.act === "more" && root.querySelectorAll("tr[data-i]")[m.rows]?.querySelector("[data-act]")) // first newly shown line
     || (j >= 0 && root.querySelector(`tr[data-i="${j}"] [data-act="${m.act}"]`)) // same line
-    || (m.act && all(m.act)[Math.min(m.at, all(m.act).length - 1)]) // removed line: the next remove button, or the last
+    || same[Math.min(m.at, same.length - 1)] // removed line: the next remove button, or the last
     || root.querySelector("#add-code");
   el?.focus({ preventScroll: true });
 }
 
-function draw({ press = false, say = false, from = null } = {}) {
+let booting = true; // the first statement, drawn from the URL, is not announced
+function draw({ press = false, quiet = booting } = {}) {
   const root = $("#st-root");
   if (!T) return;
   const { res, cfKind, loc } = compute();
@@ -111,15 +109,15 @@ function draw({ press = false, say = false, from = null } = {}) {
     specName: SPEC_NAMES[st.specKey] || st.specKey,
     locName: st.locKey ? `${loc.name}, ${loc.state}` : "National average (no ZIP)",
   };
-  const mark = focusMark(root, from);
+  const mark = focusMark(root);
   root.innerHTML = renderStatement(view, res, {
     table: T.table, rbcs: T.rbcs, cf: { 2026: T.table.cf[2026][cfKind], 2027: T.table.cf[2027][cfKind] },
   });
   if (mark) focusRestore(root, mark);
-  if (say) {
+  if (!quiet) {
     announce(res.rows.length
       ? `Statement updated: ${pctFmt(res.pct)}, ${res.change > 0 ? "+" : ""}${usd(res.change, 0)} for the same services in 2027.`
-      : "Statement updated: no fee-schedule services.", "total");
+      : "Statement updated: no fee-schedule services.", true);
   }
   if (!press) root.querySelector(".stamp")?.classList.remove("press");
   st.last = res;
@@ -260,7 +258,7 @@ async function readUrl() {
     return;
   }
   loadPreset(specByKey[s] ? s : boot.defaultSpec);
-  if (z && /^\d{5}$/.test(z)) { $("#st-zip").value = z; await setZip(z, { say: false }); }
+  if (z && /^\d{5}$/.test(z)) { $("#st-zip").value = z; await setZip(z); }
   if (l) {
     st.lines = parseLines(l);
     st.source = "custom";
@@ -270,13 +268,13 @@ async function readUrl() {
   }
 }
 
-async function setZip(z, { say = true } = {}) {
+async function setZip(z) {
   st.zip = z;
-  if (!z) { st.locKey = null; draw({ say }); return; }
+  if (!z) { st.locKey = null; draw(); return; }
   const key = await zipToLocality(z);
   st.locKey = key;
   if (!key) toast(`ZIP ${z} isn't in CMS's locality file. Using national rates.`);
-  draw({ say });
+  draw();
 }
 
 function wireStatement() {
@@ -289,20 +287,21 @@ function wireStatement() {
     const act = b.dataset.act;
     if (act === "pos" && line) { line.pos = line.pos === "F" ? "O" : "F"; touch(); }
     if (act === "rm" && line) { st.lines.splice(Number(tr.dataset.i), 1); touch(); }
-    if (act === "more") { st.expanded = true; draw(); }
+    if (act === "more") { st.expanded = true; draw({ quiet: true }); }
     if (act === "link") {
       try { await navigator.clipboard.writeText(location.href); toast("Link copied"); } catch { toast("Copy the address bar to share this statement"); }
     }
     if (act === "share") shareImage(st, st.last, { specName: SPEC_NAMES[st.specKey] || "", locName: locFor(st.locKey).name, url: boot.siteUrl });
     if (act === "add") addCode(b.dataset.code);
   });
-  let tabAt = -1e9; // a Tab out of a services box fires its change after focus has left it
   root.addEventListener("change", (e) => {
     if (e.target.dataset.act !== "svc") return;
     const tr = e.target.closest("tr[data-i]");
     const line = st.lines[Number(tr.dataset.i)];
     line.services = Math.max(0, Number(e.target.value) || 0);
-    touch(e.timeStamp - tabAt < 100 ? e.target : null);
+    // Tab or a click fires change before focus moves (before focusout, so its relatedTarget isn't known yet).
+    // Redraw once the move is done: focus is then on the control the reader went to, or nowhere in the statement.
+    setTimeout(touch);
   });
   let suggestTimer = 0;
   root.addEventListener("input", (e) => {
@@ -312,7 +311,6 @@ function wireStatement() {
     suggestTimer = setTimeout(() => suggestCodes(q), 120);
   });
   root.addEventListener("keydown", (e) => {
-    if (e.key === "Tab") tabAt = e.timeStamp;
     if (e.target.id === "add-code" && e.key === "Enter") {
       e.preventDefault();
       if (e.isComposing || e.keyCode === 229) return; // Enter confirms an IME conversion: not an add
@@ -326,18 +324,18 @@ function wireStatement() {
   });
   document.addEventListener("click", (e) => { if (!e.target.closest(".addrow")) showSuggest(false); });
   $("#st-spec").addEventListener("change", (e) => {
-    if (st.source === "npi" || st.source === "custom") { st.specKey = e.target.value; draw({ say: true }); }
+    if (st.source === "npi" || st.source === "custom") { st.specKey = e.target.value; draw(); }
     else loadPreset(e.target.value);
   });
   $("#st-zip").addEventListener("change", (e) => setZip(e.target.value.trim()));
-  $("#st-qp").addEventListener("change", (e) => { st.qp = e.target.checked; draw({ say: true }); });
-  $("#st-aco").addEventListener("change", (e) => { st.aco = e.target.checked; draw({ say: true }); });
+  $("#st-qp").addEventListener("change", (e) => { st.qp = e.target.checked; draw(); });
+  $("#st-aco").addEventListener("change", (e) => { st.aco = e.target.checked; draw(); });
 }
 
-function touch(from) {
+function touch() {
   if (st.source === "preset") { st.source = "custom"; st.title = `${st.title}, edited`; }
   if (st.source === "npi") { st.edited = true; st.volumes = st.volumes.replace(/( \(edited\))?$/, " (edited)"); }
-  draw({ say: true, from });
+  draw();
 }
 
 /** Arrow keys and Escape for a text box and its list of result buttons (the lookup and the add-a-code box). */
@@ -345,7 +343,7 @@ function listKeys(e, input, ul, close) {
   const items = [...ul.querySelectorAll("button")];
   const i = items.indexOf(document.activeElement);
   if (e.key === "ArrowDown") { e.preventDefault(); items[Math.min(items.length - 1, i + 1)]?.focus(); }
-  if (e.key === "ArrowUp" && i >= 0) { e.preventDefault(); (i === 0 ? input : items[i - 1]).focus(); }
+  if (e.key === "ArrowUp" && i >= 0) { e.preventDefault(); (items[i - 1] ?? input).focus(); }
   if (e.key === "Escape") { close(); input.focus(); }
 }
 
@@ -424,8 +422,9 @@ function wireLookup() {
     const b = e.target.closest("button[data-npi]");
     if (b) loadNpi(b.dataset.npi);
   });
-  document.addEventListener("click", (e) => { if (!form.contains(e.target)) ul.hidden = true; });
-  const keys = (e) => listKeys(e, input, ul, () => { ul.hidden = true; });
+  const close = () => { ul.hidden = true; };
+  document.addEventListener("click", (e) => { if (!form.contains(e.target)) close(); });
+  const keys = (e) => listKeys(e, input, ul, close);
   input.addEventListener("keydown", keys);
   ul.addEventListener("keydown", keys);
   $("#hero-chips").addEventListener("click", (e) => {
@@ -491,22 +490,15 @@ function drawDist(key, res) {
   const memo = `${s.key}|${you}`;
   if (memo === drawnDist) return;
   drawnDist = memo;
-  const fig = $("#dist-fig");
-  fig.querySelector(".chart-scroll").innerHTML = distChart(s.dist, boot.bins, you);
-  const cap = fig.querySelector("figcaption") || fig.appendChild(document.createElement("figcaption"));
-  cap.textContent = `${s.name}: share of about ${(s.practitionersK * 1000).toLocaleString("en-US")} practitioners by their change in total RVUs, CMS's 2025-claims estimate.${you >= 0 ? " “You” is the statement above, relative values and payment rules only." : ""}`;
+  $("#dist-fig .chart-scroll").innerHTML = distChart(s.dist, boot.bins, you);
+  $("#dist-fig figcaption").textContent = `${s.name}: share of about ${(s.practitionersK * 1000).toLocaleString("en-US")} practitioners by their change in total RVUs, CMS's 2025-claims estimate.${you >= 0 ? " “You” is the statement above, relative values and payment rules only." : ""}`;
 }
 
-/* Narrow screens: a chart wider than its column scrolls sideways (site.css); while it does, it is a named, focusable region. */
+/* Narrow screens: a chart wider than its column scrolls sideways (site.css); while it does, keyboard users can focus it to scroll. */
 const fitScroller = new ResizeObserver((ents) => {
   for (const { target: el } of ents) {
-    if (el.scrollWidth > el.clientWidth + 1) {
-      el.tabIndex = 0;
-      el.setAttribute("role", "region");
-      el.setAttribute("aria-label", el.dataset.label);
-    } else {
-      for (const a of ["tabindex", "role", "aria-label"]) el.removeAttribute(a);
-    }
+    if (el.scrollWidth > el.clientWidth + 1) el.tabIndex = 0;
+    else el.removeAttribute("tabindex");
   }
 });
 document.querySelectorAll(".chart-scroll").forEach((el) => fitScroller.observe(el));
@@ -576,5 +568,6 @@ playDemo();
 slideSpecialties();
 wireStatement();
 $("#dist-spec").addEventListener("change", (e) => drawDist(e.target.value, e.target.value === st.specKey ? st.last : null));
-ready.then(readUrl).catch((e) => { $("#st-root").insertAdjacentHTML("afterbegin", `<p class="empty">${esc(e.message)}</p>`); });
+ready.then(readUrl).catch((e) => { $("#st-root").insertAdjacentHTML("afterbegin", `<p class="empty">${esc(e.message)}</p>`); })
+  .finally(() => { booting = false; });
 initMap({ boot, getTable: () => ready.then(() => T.table), getYou: () => st.locKey, showTip, hideTip });
