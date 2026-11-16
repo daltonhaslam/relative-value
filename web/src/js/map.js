@@ -96,7 +96,7 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
   function sayYou() {
     const l = boot.localities[youLoc];
     const v = vals[youLoc];
-    youEl.textContent = !cache.priced ? "CMS publishes no national price for this service in both 2026 and 2027, so there is nothing to map."
+    youEl.textContent = !cache.priced ? "" // the scale says there is no price
       : !l ? "Enter a practice ZIP code in the statement above to see your own locality's rates here."
       : v ? `Your locality, ${l.name}, ${l.state}: ${usd(v.a)} in 2026, ${usd(v.b)} in 2027 (${pctFmt(v.pct)}). National change: ${pctFmt(cache.nat)}.`
       : `CMS publishes no price for this service in your locality, ${l.name}, ${l.state}.`;
@@ -116,9 +116,10 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
   async function start() {
     root.innerHTML = `<p class="note">Loading the county map…</p>`;
     const failed = (e) => { root.innerHTML = `<p class="note">${esc(e.message)}</p>`; };
+    const noPrices = (e) => { failed(e); tableEl.innerHTML = `<p>${esc(e.message)}</p>`; youEl.textContent = ""; };
     const geoP = load("map/counties.json");
     geoP.catch(() => {}); // handled below, after the prices
-    try { table = await getTable(); } catch (e) { return failed(e); }
+    try { table = await getTable(); } catch (e) { return noPrices(e); }
     paint();
     try { geo = await geoP; } catch (e) { return failed(e); }
     const counties = feature(geo, geo.objects.counties).features;

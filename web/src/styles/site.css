@@ -352,7 +352,8 @@ svg text { font-family: var(--sans); fill: var(--ink-2); }
 .chart { width: 100%; height: auto; display: block; overflow: visible; }
 /* Narrow screens: charts keep their drawn size (text at 11px and up) and scroll sideways; main.js names a scrolling one and makes it focusable. */
 @media (max-width: 900px) {
-  .chart-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+  /* overflow-y hidden: no nested vertical scrollbar; the padding keeps edge marks and focus rings inside the clip */
+  .chart-scroll { overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; padding: 0.5rem 0.4rem; }
   .chart-scroll > .chart { min-inline-size: 40rem; }
   .chart-scroll > .dist { min-inline-size: 35rem; }
 }

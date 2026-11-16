@@ -122,6 +122,28 @@ assert.deepEqual(await codes(), ["99213", "99214", "93306"]);
 assert.equal(await p.inputValue("#st-root tr[data-i]:has(td.code:text('99213')) input.svc"), "7");
 assert.match(new URL(p.url()).searchParams.get("l"), /^99213:O:7,99214:O:200,93306:O:10$/);
 
+// 11. a press that never ends (mousedown on a native <select>, no mouseup) must not hold back a keyboard edit
+const sb = await p.locator("#st-spec").boundingBox();
+await p.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+await p.mouse.down();
+const t0 = await p.textContent("#st-root .total-big");
+await p.fill("#st-root tr[data-i]:has(td.code:text('99214')) input.svc", "50");
+await p.press("#st-root tr[data-i]:has(td.code:text('99214')) input.svc", "Enter");
+await p.waitForFunction((t) => document.querySelector("#st-root .total-big").textContent !== t, t0, { timeout: 1000 });
+assert.match(new URL(p.url()).searchParams.get("l"), /^99213:O:7,99214:O:50,93306:O:10$/);
+await p.mouse.up();
+// ...nor a press on a statement button that never ends (the keyboard ends the wait)
+const lb = await p.locator("#st-root [data-act='link']").boundingBox();
+await p.mouse.move(lb.x + lb.width / 2, lb.y + lb.height / 2);
+await p.mouse.down();
+const t1 = await p.textContent("#st-root .total-big");
+await p.fill("#st-root tr[data-i]:has(td.code:text('93306')) input.svc", "40");
+await p.press("#st-root tr[data-i]:has(td.code:text('93306')) input.svc", "Enter");
+await p.waitForFunction((t) => document.querySelector("#st-root .total-big").textContent !== t, t1, { timeout: 400 });
+assert.match(new URL(p.url()).searchParams.get("l"), /^99213:O:7,99214:O:50,93306:O:40$/);
+await p.mouse.move(0, 0);
+await p.mouse.up();
+
 await b.close();
 assert.deepEqual(errors, []);
 console.log(`smoke ok: ${lines} lines, ${counties} counties`);

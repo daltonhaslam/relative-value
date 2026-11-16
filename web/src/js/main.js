@@ -81,36 +81,50 @@ function compute() {
 }
 
 let drawnLoc; // locality at the last draw: the map only repaints its "you" marker when this changes
-/** Where focus was in the statement, by action and position, read from the DOM before a redraw replaces it. */
+/** Where focus is in the statement: its action, its line (the object, so take the mark before changing st.lines),
+    and its position among controls with that action, read from the DOM before a redraw replaces it. */
 function focusMark(root) {
   const a = document.activeElement;
   if (!root.contains(a) || a === root) return null;
   const act = a.dataset.act;
-  return { act, at: act ? [...root.querySelectorAll(`[data-act="${act}"]`)].indexOf(a) : -1, rows: root.querySelectorAll("tr[data-i]").length };
+  const tr = a.closest("tr[data-i]");
+  return { act, line: tr ? st.lines[Number(tr.dataset.i)] : null, at: act ? [...root.querySelectorAll(`[data-act="${act}"]`)].indexOf(a) : -1, rows: root.querySelectorAll("tr[data-i]").length };
 }
 function focusRestore(root, m) {
   const same = m.act ? [...root.querySelectorAll(`[data-act="${m.act}"]`)] : [];
-  const el = (m.act === "more" && root.querySelectorAll("tr[data-i]")[m.rows]?.querySelector("[data-act]")) // first newly shown line
-    || same[Math.min(m.at, same.length - 1)] // the same control at the same place (after a removal, the next line's), or the last
+  const j = m.line ? st.lines.indexOf(m.line) : -1;
+  const el = (j >= 0 && root.querySelector(`tr[data-i="${j}"] [data-act="${m.act}"]`)) // the same line, if it is still shown
+    || (m.act === "more" && root.querySelectorAll("tr[data-i]")[m.rows]?.querySelector("[data-act]")) // first newly shown line
+    || same[Math.min(m.at, same.length - 1)] // the same place (after a removal, the next line's), or the last
     || root.querySelector("#add-code");
   el?.focus({ preventScroll: true });
 }
 
+/* A services edit not yet drawn (see wireStatement). Any non-new-statement draw applies it; a new statement drops it. */
+let editPending = false, pressTimer = 0;
+function markEdited() {
+  if (st.source === "preset") { st.source = "custom"; st.title = `${st.title}, edited`; }
+  if (st.source === "npi") { st.edited = true; st.volumes = st.volumes.replace(/( \(edited\))?$/, " (edited)"); }
+}
+
 /** press: a new statement (the stamp animates; focus is the caller's business). quiet: drawn from the URL, not announced. */
-function draw({ press = false, quiet = false } = {}) {
+function draw({ press = false, quiet = false, mark = null } = {}) {
   const root = $("#st-root");
   if (!T) return;
+  clearTimeout(pressTimer);
+  if (editPending && !press) markEdited();
+  editPending = false;
   const { res, cfKind, loc } = compute();
   const view = {
     ...st,
     specName: SPEC_NAMES[st.specKey] || st.specKey,
     locName: st.locKey ? `${loc.name}, ${loc.state}` : "National average (no ZIP)",
   };
-  const mark = !press && focusMark(root);
+  if (!press) mark ??= focusMark(root);
   root.innerHTML = renderStatement(view, res, {
     table: T.table, rbcs: T.rbcs, cf: { 2026: T.table.cf[2026][cfKind], 2027: T.table.cf[2027][cfKind] },
   });
-  if (mark) focusRestore(root, mark);
+  if (mark && !press) focusRestore(root, mark);
   if (!quiet) {
     announce(res.rows.length
       ? `Statement updated: ${pctFmt(res.pct)}, ${res.change > 0 ? "+" : ""}${usd(res.change, 0)} for the same services in 2027.`
@@ -276,24 +290,25 @@ async function setZip(z, { quiet = false } = {}) {
 
 function wireStatement() {
   const root = $("#st-root");
-  // A services edit commits on blur. If that blur came from pressing on another control, redrawing at once
-  // would replace that control before its click; so the redraw waits for the press to end. A click inside
-  // the statement redraws first (flushEdit), so its action sees, and its link or image carries, the edit.
-  let pressed = false, editPending = false;
-  const flushEdit = () => { if (editPending) { editPending = false; touch(); } };
-  document.addEventListener("pointerdown", () => { pressed = true; }, true);
-  for (const t of ["pointerup", "pointercancel"]) {
-    document.addEventListener(t, () => { pressed = false; if (editPending) setTimeout(flushEdit); }, true);
-  }
+  // A services edit commits on blur. If that blur came from pressing a button in the statement, redrawing at once
+  // would replace the button before its click, so the redraw waits for the press to end (or 500 ms at most).
+  // Anything else (a key, the window losing focus, the press ending) ends the wait. Keyboard edits never wait.
+  let pressing = false;
+  const flushEdit = () => { if (editPending) draw(); };
+  const endPress = () => { if (pressing) { pressing = false; if (editPending) setTimeout(flushEdit); } };
+  root.addEventListener("pointerdown", (e) => { pressing = !!e.target.closest("button"); }, true);
+  for (const t of ["pointerup", "pointercancel", "keydown"]) document.addEventListener(t, endPress, true);
+  addEventListener("blur", endPress);
   root.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-act]");
     if (!b) return;
     const tr = b.closest("tr[data-i]");
     const line = tr ? st.lines[Number(tr.dataset.i)] : null;
     const act = b.dataset.act;
-    flushEdit();
-    if (act === "pos" && line) { line.pos = line.pos === "F" ? "O" : "F"; touch(); }
-    if (act === "rm" && line) { st.lines.splice(Number(tr.dataset.i), 1); touch(); }
+    const mark = focusMark(root); // before st.lines changes
+    flushEdit(); // the click's action sees, and its link or image carries, a pending edit
+    if (act === "pos" && line) { line.pos = line.pos === "F" ? "O" : "F"; touch(mark); }
+    if (act === "rm" && line) { st.lines.splice(Number(tr.dataset.i), 1); touch(mark); }
     if (act === "more") { st.expanded = true; draw({ quiet: true }); }
     if (act === "link") {
       try { await navigator.clipboard.writeText(location.href); toast("Link copied"); } catch { toast("Copy the address bar to share this statement"); }
@@ -307,8 +322,8 @@ function wireStatement() {
     const line = st.lines[Number(tr.dataset.i)];
     line.services = Math.max(0, Number(e.target.value) || 0);
     editPending = true;
-    if (pressed) return; // redrawn when the press ends (above)
-    // Enter: redraw now. Tab: change fires before focus moves, so redraw once it has (focus is then restored to it).
+    if (pressing) { pressTimer = setTimeout(flushEdit, 500); return; } // drawn when the press ends (above)
+    // Enter: draw now. Tab, or a click elsewhere: change fires before focus moves, so draw once it has.
     if (document.activeElement === e.target) flushEdit(); else setTimeout(flushEdit);
   });
   let suggestTimer = 0;
@@ -343,10 +358,9 @@ function wireStatement() {
   $("#st-aco").addEventListener("change", (e) => { st.aco = e.target.checked; draw(); });
 }
 
-function touch() {
-  if (st.source === "preset") { st.source = "custom"; st.title = `${st.title}, edited`; }
-  if (st.source === "npi") { st.edited = true; st.volumes = st.volumes.replace(/( \(edited\))?$/, " (edited)"); }
-  draw();
+function touch(mark) {
+  markEdited();
+  draw({ mark });
 }
 
 /** Show or hide a result list (the lookup and the add-a-code box). `clear` empties it too, so ArrowDown can't reopen old results. */
@@ -425,7 +439,9 @@ function wireLookup() {
         : `<li class="msg">No match in CMS's ${boot.dataYear} file. Try last name first, or the NPI.</li>`;
       announce(hits.length ? `${hits.length} ${hits.length === 1 ? "clinician" : "clinicians"} found. Press Down to choose.` : ul.textContent, "hint");
     } catch (e) {
+      if (my !== seq) return;
       ul.innerHTML = `<li class="msg">${esc(e.message)}</li>`;
+      announce(e.message);
     }
   };
   input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 220); });
@@ -507,17 +523,18 @@ function drawDist(key, res) {
 
 /* Narrow screens: a chart wider than its column scrolls sideways (site.css). While it does, it is a named, focusable
    region keyboard users can scroll; otherwise it is a plain wrapper, so wide screens get no empty landmarks. */
-const fitScroller = new ResizeObserver((ents) => {
-  for (const { target: el } of ents) {
-    if (el.scrollWidth > el.clientWidth + 1) {
-      el.tabIndex = 0;
-      el.setAttribute("role", "region");
-      el.setAttribute("aria-label", el.dataset.label);
-    } else {
-      for (const a of ["tabindex", "role", "aria-label"]) el.removeAttribute(a);
-    }
+function fitScroll(el) {
+  if (el.scrollWidth > el.clientWidth + 1) {
+    el.tabIndex = 0;
+    el.setAttribute("role", "region");
+    el.setAttribute("aria-label", el.dataset.label);
+  } else if (el === document.activeElement) {
+    el.addEventListener("blur", () => fitScroll(el), { once: true }); // not while it has focus
+  } else {
+    for (const a of ["tabindex", "role", "aria-label"]) el.removeAttribute(a);
   }
-});
+}
+const fitScroller = new ResizeObserver((ents) => ents.forEach((x) => fitScroll(x.target)));
 document.querySelectorAll(".chart-scroll").forEach((el) => fitScroller.observe(el));
 
 /* ---------------- history hover ---------------- */
