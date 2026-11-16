@@ -73,6 +73,18 @@ await p.fill("#add-code", "knee replacement ");
 await p.waitForSelector("#add-results button[data-code='27447']");
 await p.click("#add-results button[data-code='27447']");
 await p.waitForSelector("#st-root tr[data-i] td.code:text('27447')");
+// edit a services box, then a real mouse press on a Remove button: the edit's change fires on mousedown
+// and redraws, and the click must still land
+const nNow = await p.$$eval("#st-root tr[data-i]", (r) => r.length);
+await p.fill("#st-root input.svc >> nth=1", "7");
+await p.locator("#st-root button.x >> nth=2").scrollIntoViewIfNeeded();
+const xb = await p.locator("#st-root button.x >> nth=2").boundingBox();
+await p.mouse.move(xb.x + xb.width / 2, xb.y + xb.height / 2);
+await p.mouse.down();
+await p.waitForTimeout(150);
+await p.mouse.up();
+await p.waitForFunction((n) => document.querySelectorAll("#st-root tr[data-i]").length === n - 1, nNow, { timeout: 3000 });
+assert.equal(await p.inputValue("#st-root input.svc >> nth=1"), "7");
 
 // 5. ZIP -> locality (preset path)
 await p.click("#hero-chips [data-spec='DERMATOLOGY']");

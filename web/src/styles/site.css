@@ -96,8 +96,10 @@ body {
   font-stretch: 100%;
   font-variant-numeric: tabular-nums;
 }
-/* While the web fonts load, scale the fallbacks to each web font's x-height (measured: Archivo 0.526, Courier Prime 0.451).
-   The font shorthand resets this, so only elements that inherit or set font-family alone are adjusted. */
+/* Scale every font to the x-height of the web font it stands in for (measured: Archivo 0.526, Courier Prime 0.451).
+   This applies all the time; the values are the web fonts' own, so they are unchanged once loaded and only a fallback
+   (while loading, or if a font fails) is resized to match. The font shorthand resets it: only elements that inherit
+   or set font-family alone are adjusted. */
 body, .sheet-foot, .addrow { font-size-adjust: 0.526; }
 .typed, .sheet, .sheet .lab, .effects .v, .spec-row .num, .tip td + td, .waterfall text.val { font-size-adjust: 0.451; }
 a { color: inherit; text-decoration-color: var(--form); text-underline-offset: 0.18em; }

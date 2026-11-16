@@ -47,7 +47,7 @@
       <form class="lookup" id="lookup" role="search" autocomplete="off">
         <div class="row">
           <div class="box"><label class="lab" for="q">Clinician name or 10-digit NPI</label>
-            <input id="q" name="q" type="search" inputmode="search" placeholder="e.g. Garcia Maria, or 1234567890" aria-describedby="q-help" aria-controls="q-results" aria-autocomplete="list" spellcheck="false">
+            <input id="q" name="q" type="search" inputmode="search" placeholder="e.g. Garcia Maria, or 1234567890" role="combobox" aria-describedby="q-help" aria-controls="q-results" aria-autocomplete="list" aria-expanded="false" spellcheck="false">
           </div>
           <button class="btn" type="submit">Look up</button>
         </div>
@@ -135,7 +135,7 @@
       <div id="map-root" class="map" role="img" aria-label="{{MAP_ALT}}"><p class="note">The county map loads here.</p></div>
       <div class="scale" id="map-scale"></div>
       <p class="note" id="map-you"></p>
-      <details class="note"><summary>Table: every payment locality</summary><div id="map-table" class="lines-wrap chart-scroll" role="region" aria-label="Locality table"><p>The table loads with the map.</p></div></details>
+      <details class="note"><summary>Table: every payment locality</summary><div id="map-table" class="lines-wrap chart-scroll" data-label="Locality table"><p>The table loads with the map.</p></div></details>
       <figcaption>{{MAP_CAPTION}}</figcaption>
     </figure>
   </div>

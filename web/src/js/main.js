@@ -80,27 +80,42 @@ function compute() {
 }
 
 let drawnLoc; // locality at the last draw: the map only repaints its "you" marker when this changes
-/** Where focus was inside the statement, so the same control (by line and action) gets it back after a redraw. */
+/** Make `a`'s children match `b`'s while keeping every element whose tag lines up, so an edit doesn't destroy
+    the control the reader is on or is clicking (an edit's change fires on mousedown, before the click). */
+function morph(a, b) {
+  const bn = [...b.childNodes];
+  bn.forEach((y, k) => {
+    const x = a.childNodes[k];
+    if (!x) a.append(y);
+    else if (x.nodeType !== 1 || x.nodeName !== y.nodeName) { if (!x.isEqualNode(y)) x.replaceWith(y); }
+    else {
+      for (const { name } of [...x.attributes]) if (!y.hasAttribute(name)) x.removeAttribute(name);
+      for (const { name, value } of y.attributes) if (x.getAttribute(name) !== value) x.setAttribute(name, value);
+      if (x.nodeName === "INPUT" && x.value !== y.value) x.value = y.value; // an edited input ignores its value attribute
+      morph(x, y);
+    }
+  });
+  while (a.childNodes.length > bn.length) a.lastChild.remove();
+}
+
+/** Where focus was in the statement (by action and position, read from the DOM before it changes),
+    for the cases where the focused control disappears: the last line removed, or "Show all". */
 function focusMark(root) {
   const a = document.activeElement;
   if (!root.contains(a) || a === root) return null;
   const act = a.dataset.act;
-  const i = a.closest("tr[data-i]")?.dataset.i;
-  return { id: a.id, act, line: i != null ? st.lines[Number(i)] : null, at: act ? [...root.querySelectorAll(`[data-act="${act}"]`)].indexOf(a) : -1, rows: root.querySelectorAll("tr[data-i]").length };
+  return { act, at: act ? [...root.querySelectorAll(`[data-act="${act}"]`)].indexOf(a) : -1, rows: root.querySelectorAll("tr[data-i]").length };
 }
 function focusRestore(root, m) {
   const same = m.act ? [...root.querySelectorAll(`[data-act="${m.act}"]`)] : [];
-  const j = st.lines.indexOf(m.line);
-  const el = (m.id && root.querySelector(`#${m.id}`))
-    || (m.act === "more" && root.querySelectorAll("tr[data-i]")[m.rows]?.querySelector("[data-act]")) // first newly shown line
-    || (j >= 0 && root.querySelector(`tr[data-i="${j}"] [data-act="${m.act}"]`)) // same line
-    || same[Math.min(m.at, same.length - 1)] // removed line: the next remove button, or the last
+  const el = (m.act === "more" && root.querySelectorAll("tr[data-i]")[m.rows]?.querySelector("[data-act]")) // first newly shown line
+    || same[Math.min(m.at, same.length - 1)] // the same control at the same place, or the last one left
     || root.querySelector("#add-code");
   el?.focus({ preventScroll: true });
 }
 
-let booting = true; // the first statement, drawn from the URL, is not announced
-function draw({ press = false, quiet = booting } = {}) {
+/** press: a new statement (fresh markup, the stamp animates). quiet: drawn from the URL, not announced. */
+function draw({ press = false, quiet = false } = {}) {
   const root = $("#st-root");
   if (!T) return;
   const { res, cfKind, loc } = compute();
@@ -110,10 +125,12 @@ function draw({ press = false, quiet = booting } = {}) {
     locName: st.locKey ? `${loc.name}, ${loc.state}` : "National average (no ZIP)",
   };
   const mark = focusMark(root);
-  root.innerHTML = renderStatement(view, res, {
+  const html = renderStatement(view, res, {
     table: T.table, rbcs: T.rbcs, cf: { 2026: T.table.cf[2026][cfKind], 2027: T.table.cf[2027][cfKind] },
   });
-  if (mark) focusRestore(root, mark);
+  if (press) root.innerHTML = html;
+  else { const t = document.createElement("template"); t.innerHTML = html; morph(root, t.content); }
+  if (mark && !root.contains(document.activeElement)) focusRestore(root, mark);
   if (!quiet) {
     announce(res.rows.length
       ? `Statement updated: ${pctFmt(res.pct)}, ${res.change > 0 ? "+" : ""}${usd(res.change, 0)} for the same services in 2027.`
@@ -130,7 +147,7 @@ function draw({ press = false, quiet = booting } = {}) {
   }
 }
 
-function loadPreset(key, { scroll = false } = {}) {
+function loadPreset(key, { scroll = false, quiet = false } = {}) {
   loadSeq++;
   const s = specByKey[key];
   if (!s) return;
@@ -143,27 +160,27 @@ function loadPreset(key, { scroll = false } = {}) {
   st.source = "preset";
   st.edited = false;
   $("#st-spec").value = key;
-  draw({ press: true });
+  draw({ press: true, quiet });
   if (scroll) scrollToStatement();
 }
 
 let loadSeq = 0; // bumped by every lookup or preset load, so late async steps can tell they're stale
 
 /** Load a clinician's statement. Resolves after drawing (or after the fallback, if the NPI can't be loaded). */
-async function loadNpi(npi, { scroll = true } = {}) {
+async function loadNpi(npi, { scroll = true, quiet = false } = {}) {
   const res = $("#q-results");
   // Nothing on the statement yet (e.g. a shared ?npi= link): show a typical practice instead of an empty sheet.
   const fallback = async (why) => {
     if (st.lines.length) return;
     await ready;
-    loadPreset(boot.defaultSpec);
+    loadPreset(boot.defaultSpec, { quiet });
     toast(`${why} Showing a typical practice instead.`);
   };
   const seq = ++loadSeq;
   try {
     const rec = await npiRecord(npi);
     if (!rec) {
-      res.hidden = false;
+      showList(res, $("#q"), true);
       res.innerHTML = `<li class="msg">No clinician with NPI ${esc(npi)} in CMS's ${boot.dataYear} file. The file covers clinicians who billed Medicare Part B fee-for-service that year.</li>`;
       await fallback(`No clinician with NPI ${npi} in CMS's ${boot.dataYear} file.`);
       return;
@@ -184,12 +201,12 @@ async function loadNpi(npi, { scroll = true } = {}) {
     st.source = "npi";
     if (specByKey[st.specKey]) $("#st-spec").value = st.specKey;
     const picked = res.contains(document.activeElement); // a result button had focus: it is about to be hidden
-    res.hidden = true;
-    draw({ press: true });
+    showList(res, $("#q"), false);
+    draw({ press: true, quiet });
     if (picked) $("#statement h2").focus({ preventScroll: true });
     if (scroll) scrollToStatement();
   } catch (e) {
-    res.hidden = false;
+    showList(res, $("#q"), true);
     res.innerHTML = `<li class="msg">${esc(e.message)}</li>`;
     await fallback(`Couldn't load NPI ${npi}: ${e.message}`);
   }
@@ -232,7 +249,7 @@ async function readUrl() {
   const z = p.get("z");
   const l = p.get("l");
   if (npi && /^\d{10}$/.test(npi)) {
-    await loadNpi(npi, { scroll: false });
+    await loadNpi(npi, { scroll: false, quiet: true });
     if (st.source !== "npi" || st.who?.npi !== npi) return; // not found (fell back) or superseded
     const seq = loadSeq;
     const recLines = st.lines;
@@ -254,27 +271,27 @@ async function readUrl() {
       st.volumes = st.volumes.replace(/( \(edited\))?$/, " (edited)");
       changed = true;
     }
-    if (changed) draw({ press: true });
+    if (changed) draw({ press: true, quiet: true });
     return;
   }
-  loadPreset(specByKey[s] ? s : boot.defaultSpec);
-  if (z && /^\d{5}$/.test(z)) { $("#st-zip").value = z; await setZip(z); }
+  loadPreset(specByKey[s] ? s : boot.defaultSpec, { quiet: true });
+  if (z && /^\d{5}$/.test(z)) { $("#st-zip").value = z; await setZip(z, { quiet: true }); }
   if (l) {
     st.lines = parseLines(l);
     st.source = "custom";
     st.title = "Custom practice";
     st.volumes = "Entered on this page";
-    draw();
+    draw({ quiet: true });
   }
 }
 
-async function setZip(z) {
+async function setZip(z, { quiet = false } = {}) {
   st.zip = z;
-  if (!z) { st.locKey = null; draw(); return; }
+  if (!z) { st.locKey = null; draw({ quiet }); return; }
   const key = await zipToLocality(z);
   st.locKey = key;
   if (!key) toast(`ZIP ${z} isn't in CMS's locality file. Using national rates.`);
-  draw();
+  draw({ quiet });
 }
 
 function wireStatement() {
@@ -299,9 +316,7 @@ function wireStatement() {
     const tr = e.target.closest("tr[data-i]");
     const line = st.lines[Number(tr.dataset.i)];
     line.services = Math.max(0, Number(e.target.value) || 0);
-    // Tab or a click fires change before focus moves (before focusout, so its relatedTarget isn't known yet).
-    // Redraw once the move is done: focus is then on the control the reader went to, or nowhere in the statement.
-    setTimeout(touch);
+    touch(); // the redraw keeps the row's controls, so a Tab or a click that fired this change still lands
   });
   let suggestTimer = 0;
   root.addEventListener("input", (e) => {
@@ -320,9 +335,9 @@ function wireStatement() {
       if (first) addCode(first.dataset.code);
       return;
     }
-    if (e.target.closest(".addrow")) listKeys(e, $("#add-code"), $("#add-results"), () => showSuggest(false));
+    if (e.target.closest(".addrow")) listKeys(e, $("#add-code"), $("#add-results"));
   });
-  document.addEventListener("click", (e) => { if (!e.target.closest(".addrow")) showSuggest(false); });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".addrow") && $("#add-results")) showList($("#add-results"), $("#add-code"), false); });
   $("#st-spec").addEventListener("change", (e) => {
     if (st.source === "npi" || st.source === "custom") { st.specKey = e.target.value; draw(); }
     else loadPreset(e.target.value);
@@ -338,27 +353,26 @@ function touch() {
   draw();
 }
 
-/** Arrow keys and Escape for a text box and its list of result buttons (the lookup and the add-a-code box). */
-function listKeys(e, input, ul, close) {
-  const items = [...ul.querySelectorAll("button")];
-  const i = items.indexOf(document.activeElement);
-  if (e.key === "ArrowDown") { e.preventDefault(); items[Math.min(items.length - 1, i + 1)]?.focus(); }
-  if (e.key === "ArrowUp" && i >= 0) { e.preventDefault(); (items[i - 1] ?? input).focus(); }
-  if (e.key === "Escape") { close(); input.focus(); }
+/** Show or hide a combobox's list, keeping the input's aria-expanded in step (the lookup and the add-a-code box). */
+function showList(ul, input, open) {
+  ul.hidden = !open;
+  input.setAttribute("aria-expanded", String(open));
 }
 
-function showSuggest(open) {
-  const ul = $("#add-results");
-  if (!ul) return;
-  ul.hidden = !open;
-  $("#add-code")?.setAttribute("aria-expanded", String(open));
+/** Arrow keys and Escape for a combobox and its list of result buttons. ArrowDown reopens a closed list that has results. */
+function listKeys(e, input, ul) {
+  const items = [...ul.querySelectorAll("button")];
+  const i = items.indexOf(document.activeElement);
+  if (e.key === "ArrowDown" && items.length) { e.preventDefault(); showList(ul, input, true); items[Math.min(items.length - 1, i + 1)].focus(); }
+  if (e.key === "ArrowUp" && i >= 0) { e.preventDefault(); (items[i - 1] ?? input).focus(); }
+  if (e.key === "Escape") { showList(ul, input, false); input.focus(); }
 }
 
 let codeIndex = null;
 function suggestCodes(q) {
   const ul = $("#add-results");
   q = q.trim().toLowerCase();
-  if (q.length < 2) { showSuggest(false); return; }
+  if (q.length < 2) { showList(ul, $("#add-code"), false); return; }
   if (!codeIndex) {
     codeIndex = Object.keys(T.table.codes).map((k) => {
       const base = k.split("-")[0];
@@ -376,7 +390,7 @@ function suggestCodes(q) {
     .filter((c) => words.every((w) => c.hay.includes(w)))
     .sort((a, b) => (b.k.toLowerCase().startsWith(q) - a.k.toLowerCase().startsWith(q)) || (b.own - a.own) || a.k.localeCompare(b.k))
     .slice(0, 8);
-  showSuggest(true);
+  showList(ul, $("#add-code"), true);
   ul.innerHTML = hits.length
     ? hits.map((c) => `<li><button type="button" data-act="add" data-code="${esc(c.k)}"><span class="who typed">${esc(c.k)}</span><span class="what">${esc(c.lbl || "No label")}</span></button></li>`).join("")
     : `<li class="msg">No fee-schedule code matches “${esc(q)}”.</li>`;
@@ -403,8 +417,8 @@ function wireLookup() {
     const q = input.value.trim();
     const my = ++seq;
     if (/^\d{10}$/.test(q)) { loadNpi(q); return; }
-    if (q.replace(/[^a-z]/gi, "").length < 2) { ul.hidden = true; return; }
-    ul.hidden = false;
+    if (q.replace(/[^a-z]/gi, "").length < 2) { showList(ul, input, false); return; }
+    showList(ul, input, true);
     ul.innerHTML = `<li class="msg">Searching…</li>`;
     try {
       const hits = await searchNames(q, 30);
@@ -422,9 +436,8 @@ function wireLookup() {
     const b = e.target.closest("button[data-npi]");
     if (b) loadNpi(b.dataset.npi);
   });
-  const close = () => { ul.hidden = true; };
-  document.addEventListener("click", (e) => { if (!form.contains(e.target)) close(); });
-  const keys = (e) => listKeys(e, input, ul, close);
+  document.addEventListener("click", (e) => { if (!form.contains(e.target)) showList(ul, input, false); });
+  const keys = (e) => listKeys(e, input, ul);
   input.addEventListener("keydown", keys);
   ul.addEventListener("keydown", keys);
   $("#hero-chips").addEventListener("click", (e) => {
@@ -494,11 +507,17 @@ function drawDist(key, res) {
   $("#dist-fig figcaption").textContent = `${s.name}: share of about ${(s.practitionersK * 1000).toLocaleString("en-US")} practitioners by their change in total RVUs, CMS's 2025-claims estimate.${you >= 0 ? " “You” is the statement above, relative values and payment rules only." : ""}`;
 }
 
-/* Narrow screens: a chart wider than its column scrolls sideways (site.css); while it does, keyboard users can focus it to scroll. */
+/* Narrow screens: a chart wider than its column scrolls sideways (site.css). While it does, it is a named, focusable
+   region keyboard users can scroll; otherwise it is a plain wrapper, so wide screens get no empty landmarks. */
 const fitScroller = new ResizeObserver((ents) => {
   for (const { target: el } of ents) {
-    if (el.scrollWidth > el.clientWidth + 1) el.tabIndex = 0;
-    else el.removeAttribute("tabindex");
+    if (el.scrollWidth > el.clientWidth + 1) {
+      el.tabIndex = 0;
+      el.setAttribute("role", "region");
+      el.setAttribute("aria-label", el.dataset.label);
+    } else {
+      for (const a of ["tabindex", "role", "aria-label"]) el.removeAttribute(a);
+    }
   }
 });
 document.querySelectorAll(".chart-scroll").forEach((el) => fitScroller.observe(el));
@@ -568,6 +587,5 @@ playDemo();
 slideSpecialties();
 wireStatement();
 $("#dist-spec").addEventListener("change", (e) => drawDist(e.target.value, e.target.value === st.specKey ? st.last : null));
-ready.then(readUrl).catch((e) => { $("#st-root").insertAdjacentHTML("afterbegin", `<p class="empty">${esc(e.message)}</p>`); })
-  .finally(() => { booting = false; });
+ready.then(readUrl).catch((e) => { $("#st-root").insertAdjacentHTML("afterbegin", `<p class="empty">${esc(e.message)}</p>`); });
 initMap({ boot, getTable: () => ready.then(() => T.table), getYou: () => st.locKey, showTip, hideTip });

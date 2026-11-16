@@ -56,11 +56,12 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
     return cache;
   }
 
+  // Needs only the pricing table: the scale, the "your locality" line and the table work even if the map geometry fails.
   function paint() {
     const { nat, usdEdges, usdLo, usdHi } = stats();
     const meas = measSel.value;
     youLoc = getYou();
-    for (const [loc, ps] of byLoc) {
+    for (const [loc, ps] of byLoc || []) {
       const v = vals[loc];
       let c = "qn";
       if (v) {
@@ -79,7 +80,7 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
     }
   }
 
-  // The locality table: built when it is open and the map has data, and rebuilt only for a new service.
+  // The locality table: built when it is open and the prices are in, and rebuilt only for a new service.
   function fillTable() {
     if (!tableBox.open || !cache || tableCode === cache.code) return;
     tableCode = cache.code;
@@ -93,9 +94,9 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
   function sayYou() {
     const l = boot.localities[youLoc];
     const v = vals[youLoc];
-    youEl.textContent = l && v
-      ? `Your locality, ${l.name}, ${l.state}: ${usd(v.a)} in 2026, ${usd(v.b)} in 2027 (${pctFmt(v.pct)}). National change: ${pctFmt(cache.nat)}.`
-      : "Enter a practice ZIP code in the statement above to see your own locality's rates here.";
+    youEl.textContent = !l ? "Enter a practice ZIP code in the statement above to see your own locality's rates here."
+      : v ? `Your locality, ${l.name}, ${l.state}: ${usd(v.a)} in 2026, ${usd(v.b)} in 2027 (${pctFmt(v.pct)}). National change: ${pctFmt(cache.nat)}.`
+      : `CMS publishes no price for this service in your locality, ${l.name}, ${l.state}.`;
   }
 
   // The locality changed: only the old and new "you" localities need their class touched.
@@ -103,7 +104,7 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
     const next = getYou();
     if (next === youLoc) return;
     for (const [loc, on] of [[youLoc, false], [next, true]]) {
-      for (const p of byLoc.get(loc) || []) p.classList.toggle("you", on);
+      for (const p of byLoc?.get(loc) || []) p.classList.toggle("you", on);
     }
     youLoc = next;
     sayYou();
@@ -111,12 +112,12 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
 
   async function start() {
     root.innerHTML = `<p class="note">Loading the county map…</p>`;
-    try {
-      [geo, table] = await Promise.all([load("map/counties.json"), getTable()]);
-    } catch (e) {
-      root.innerHTML = `<p class="note">${esc(e.message)}</p>`;
-      return;
-    }
+    const failed = (e) => { root.innerHTML = `<p class="note">${esc(e.message)}</p>`; };
+    const geoP = load("map/counties.json");
+    geoP.catch(() => {}); // handled below, after the prices
+    try { table = await getTable(); } catch (e) { return failed(e); }
+    paint();
+    try { geo = await geoP; } catch (e) { return failed(e); }
     const counties = feature(geo, geo.objects.counties).features;
     const states = geo.objects.statesMesh ? feature(geo, geo.objects.statesMesh) : null;
     const locMesh = geo.objects.localityMesh ? feature(geo, geo.objects.localityMesh) : null;
@@ -148,10 +149,10 @@ export function initMap({ boot, getTable, getYou, showTip, hideTip }) {
     svg.addEventListener("mouseleave", hideTip);
   }
 
-  codeSel.addEventListener("change", () => paths && paint());
-  measSel.addEventListener("change", () => paths && paint());
+  codeSel.addEventListener("change", () => table && paint());
+  measSel.addEventListener("change", () => table && paint());
   tableBox.addEventListener("toggle", fillTable);
-  document.addEventListener("rv:locality", () => paths && moveYou());
+  document.addEventListener("rv:locality", () => table && moveYou());
   const io = new IntersectionObserver((ents) => {
     if (ents.some((x) => x.isIntersecting)) { io.disconnect(); start(); }
   }, { rootMargin: "400px" });
