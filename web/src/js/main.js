@@ -100,8 +100,9 @@ function focusRestore(root, m) {
   el?.focus({ preventScroll: true });
 }
 
-/* A services edit not yet drawn (see wireStatement). Any non-new-statement draw applies it; a new statement drops it. */
-let editPending = false, pressTimer = 0;
+/* A services edit not yet drawn (its change handler draws on the next tick). Any redraw of the same statement
+   applies it; a new statement (a preset or clinician load) replaces the lines it was made on, so drops it. */
+let editPending = false;
 function markEdited() {
   if (st.source === "preset") { st.source = "custom"; st.title = `${st.title}, edited`; }
   if (st.source === "npi") { st.edited = true; st.volumes = st.volumes.replace(/( \(edited\))?$/, " (edited)"); }
@@ -111,7 +112,6 @@ function markEdited() {
 function draw({ press = false, quiet = false, mark = null } = {}) {
   const root = $("#st-root");
   if (!T) return;
-  clearTimeout(pressTimer);
   if (editPending && !press) markEdited();
   editPending = false;
   const { res, cfKind, loc } = compute();
@@ -261,8 +261,7 @@ async function readUrl() {
       // Keep each line's average allowed amount from the record (anesthesia lines are priced from it).
       const avg = new Map(recLines.map((x) => [`${x.hcpcs}-${x.mod}:${x.pos}`, x.avgAllowed]));
       st.lines = parseLines(l).map((x) => ({ ...x, avgAllowed: avg.get(`${x.hcpcs}-${x.mod}:${x.pos}`) }));
-      st.edited = true;
-      st.volumes = st.volumes.replace(/( \(edited\))?$/, " (edited)");
+      markEdited();
       changed = true;
     }
     if (changed) draw({ press: true, quiet: true });
@@ -290,15 +289,6 @@ async function setZip(z, { quiet = false } = {}) {
 
 function wireStatement() {
   const root = $("#st-root");
-  // A services edit commits on blur. If that blur came from pressing a button in the statement, redrawing at once
-  // would replace the button before its click, so the redraw waits for the press to end (or 500 ms at most).
-  // Anything else (a key, the window losing focus, the press ending) ends the wait. Keyboard edits never wait.
-  let pressing = false;
-  const flushEdit = () => { if (editPending) draw(); };
-  const endPress = () => { if (pressing) { pressing = false; if (editPending) setTimeout(flushEdit); } };
-  root.addEventListener("pointerdown", (e) => { pressing = !!e.target.closest("button"); }, true);
-  for (const t of ["pointerup", "pointercancel", "keydown"]) document.addEventListener(t, endPress, true);
-  addEventListener("blur", endPress);
   root.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-act]");
     if (!b) return;
@@ -306,7 +296,6 @@ function wireStatement() {
     const line = tr ? st.lines[Number(tr.dataset.i)] : null;
     const act = b.dataset.act;
     const mark = focusMark(root); // before st.lines changes
-    flushEdit(); // the click's action sees, and its link or image carries, a pending edit
     if (act === "pos" && line) { line.pos = line.pos === "F" ? "O" : "F"; touch(mark); }
     if (act === "rm" && line) { st.lines.splice(Number(tr.dataset.i), 1); touch(mark); }
     if (act === "more") { st.expanded = true; draw({ quiet: true }); }
@@ -322,9 +311,8 @@ function wireStatement() {
     const line = st.lines[Number(tr.dataset.i)];
     line.services = Math.max(0, Number(e.target.value) || 0);
     editPending = true;
-    if (pressing) { pressTimer = setTimeout(flushEdit, 500); return; } // drawn when the press ends (above)
-    // Enter: draw now. Tab, or a click elsewhere: change fires before focus moves, so draw once it has.
-    if (document.activeElement === e.target) flushEdit(); else setTimeout(flushEdit);
+    // Draw on the next tick: a Tab fires change before focus moves, so focus is then on the control it went to.
+    setTimeout(() => { if (editPending) touch(); });
   });
   let suggestTimer = 0;
   root.addEventListener("input", (e) => {
@@ -412,8 +400,9 @@ function addCode(k) {
   const r = T.table.codes[k];
   // Default to office only where 2027 has a non-facility rate (or, for a code deleted in 2027, 2026 had one).
   const officeOk = r && (r[5] != null || (r[4] == null && r[6] == null && r[1] != null));
+  const mark = focusMark($("#st-root")); // before st.lines changes
   st.lines.unshift({ hcpcs, mod, pos: officeOk ? "O" : "F", services: 100 });
-  touch();
+  touch(mark);
   $("#add-code")?.focus();
 }
 
@@ -523,13 +512,16 @@ function drawDist(key, res) {
 
 /* Narrow screens: a chart wider than its column scrolls sideways (site.css). While it does, it is a named, focusable
    region keyboard users can scroll; otherwise it is a plain wrapper, so wide screens get no empty landmarks. */
+const fitOnBlur = new WeakSet();
 function fitScroll(el) {
   if (el.scrollWidth > el.clientWidth + 1) {
     el.tabIndex = 0;
     el.setAttribute("role", "region");
     el.setAttribute("aria-label", el.dataset.label);
   } else if (el === document.activeElement) {
-    el.addEventListener("blur", () => fitScroll(el), { once: true }); // not while it has focus
+    if (fitOnBlur.has(el)) return; // not while it has focus: once, when it loses it
+    fitOnBlur.add(el);
+    el.addEventListener("blur", () => { fitOnBlur.delete(el); fitScroll(el); }, { once: true });
   } else {
     for (const a of ["tabindex", "role", "aria-label"]) el.removeAttribute(a);
   }

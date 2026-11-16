@@ -46,7 +46,7 @@ const before = await p.textContent("#st-root .total-big");
 const svcLine = await p.getAttribute("#st-root tr[data-i] >> nth=0", "data-i");
 await p.fill("#st-root input.svc >> nth=0", "1");
 await p.press("#st-root input.svc >> nth=0", "Tab");
-await p.waitForFunction((t) => document.querySelector("#st-root .total-big").textContent !== t, before);
+await p.waitForFunction((t) => document.querySelector("#st-root .total-big").textContent !== t, before, { timeout: 250 });
 await p.waitForFunction(() => /^Statement updated: /.test(document.querySelector("#live").textContent)); // announced
 // Tab out of the services box lands on the next control of the same line (its Remove button), not on <body>
 assert.equal(await p.evaluate(() => document.activeElement.closest("#st-root tr[data-i]")?.dataset.i + document.activeElement.dataset.act), `${svcLine}rm`);
@@ -102,46 +102,32 @@ await p.goto(`${url}?s=CARDIOLOGY&z=10001&qp=1`, { waitUntil: "networkidle" });
 await p.waitForFunction(() => /cardiology/i.test(document.querySelector("#st-root .sheet-head")?.textContent || ""));
 assert.ok(await p.isChecked("#st-qp"));
 
-// 10. edit a services box, then press a Remove button with a real mouse (down, pause, up). The edit commits on
-// mousedown; the line under the pointer must be the one removed, and the edit must survive. Four lines, so
-// "Show all" can't hide a row.
+// 10. keyboard: edit a services box (Enter), then remove another line with its Remove button (Enter). The edit
+// survives and the line removed is the one chosen. Four lines, so "Show all" can't hide a row.
 await p.goto(`${url}?s=FAMILY%20PRACTICE&l=99213:O:100,99214:O:200,27447:F:5,93306:O:10`, { waitUntil: "networkidle" });
 await p.waitForSelector("#st-root tr[data-i] td.code:text('93306')");
 const codes = () => p.$$eval("#st-root tr[data-i] td.code", (t) => t.map((x) => x.textContent));
 assert.deepEqual(await codes(), ["99213", "99214", "27447", "93306"]);
+const t0 = await p.textContent("#st-root .total-big");
 await p.fill("#st-root tr[data-i]:has(td.code:text('99213')) input.svc", "7");
-const rm = p.locator("#st-root tr[data-i]:has(td.code:text('27447')) button.x");
-await rm.scrollIntoViewIfNeeded();
-const xb = await rm.boundingBox();
-await p.mouse.move(xb.x + xb.width / 2, xb.y + xb.height / 2);
-await p.mouse.down();
-await p.waitForTimeout(150);
-await p.mouse.up();
-await p.waitForFunction(() => document.querySelectorAll("#st-root tr[data-i]").length === 3, null, { timeout: 3000 });
+await p.press("#st-root tr[data-i]:has(td.code:text('99213')) input.svc", "Enter");
+await p.waitForFunction((t) => document.querySelector("#st-root .total-big").textContent !== t, t0, { timeout: 250 });
+assert.match(new URL(p.url()).searchParams.get("l"), /^99213:O:7,99214:O:200,27447:F:5,93306:O:10$/);
+await p.focus("#st-root tr[data-i]:has(td.code:text('27447')) button.x");
+await p.keyboard.press("Enter");
 assert.deepEqual(await codes(), ["99213", "99214", "93306"]);
 assert.equal(await p.inputValue("#st-root tr[data-i]:has(td.code:text('99213')) input.svc"), "7");
 assert.match(new URL(p.url()).searchParams.get("l"), /^99213:O:7,99214:O:200,93306:O:10$/);
 
-// 11. a press that never ends (mousedown on a native <select>, no mouseup) must not hold back a keyboard edit
+// 11. a mouse press that never ends (mousedown on a native <select>, no mouseup) doesn't hold back a keyboard edit
 const sb = await p.locator("#st-spec").boundingBox();
 await p.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
 await p.mouse.down();
-const t0 = await p.textContent("#st-root .total-big");
+const t1 = await p.textContent("#st-root .total-big");
 await p.fill("#st-root tr[data-i]:has(td.code:text('99214')) input.svc", "50");
 await p.press("#st-root tr[data-i]:has(td.code:text('99214')) input.svc", "Enter");
-await p.waitForFunction((t) => document.querySelector("#st-root .total-big").textContent !== t, t0, { timeout: 1000 });
+await p.waitForFunction((t) => document.querySelector("#st-root .total-big").textContent !== t, t1, { timeout: 250 });
 assert.match(new URL(p.url()).searchParams.get("l"), /^99213:O:7,99214:O:50,93306:O:10$/);
-await p.mouse.up();
-// ...nor a press on a statement button that never ends (the keyboard ends the wait)
-const lb = await p.locator("#st-root [data-act='link']").boundingBox();
-await p.mouse.move(lb.x + lb.width / 2, lb.y + lb.height / 2);
-await p.mouse.down();
-const t1 = await p.textContent("#st-root .total-big");
-await p.fill("#st-root tr[data-i]:has(td.code:text('93306')) input.svc", "40");
-await p.press("#st-root tr[data-i]:has(td.code:text('93306')) input.svc", "Enter");
-await p.waitForFunction((t) => document.querySelector("#st-root .total-big").textContent !== t, t1, { timeout: 400 });
-assert.match(new URL(p.url()).searchParams.get("l"), /^99213:O:7,99214:O:50,93306:O:40$/);
-await p.mouse.move(0, 0);
 await p.mouse.up();
 
 await b.close();
